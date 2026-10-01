@@ -37,12 +37,8 @@ func Run() {
 
 	if s.session == nil {
 		fmt.Println()
-		fmt.Println(
-			messageNoActiveSession,
-		)
-		fmt.Println(
-			messageUseHelp,
-		)
+		fmt.Println(messageNoActiveSession)
+		fmt.Println(messageUseHelp)
 	} else {
 		fmt.Printf(
 			messageLoggedInAs,
@@ -68,9 +64,7 @@ func Run() {
 				),
 			)
 
-			fmt.Println(
-				messageShellTerminated,
-			)
+			fmt.Println(messageShellTerminated)
 
 			return
 		}
