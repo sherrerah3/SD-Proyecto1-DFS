@@ -10,9 +10,7 @@ import (
 // Aserción en tiempo de compilación: *MemoryStore debe cumplir Store.
 var _ Store = (*MemoryStore)(nil)
 
-// MemoryStore es una implementación de Store en memoria, protegida por un
-// único sync.RWMutex. Es suficiente para el alcance del proyecto; si las
-// pruebas de carga muestran contención se puede partir en varios mutexes.
+// MemoryStore implementa Store en memoria, protegido por un único sync.RWMutex.
 type MemoryStore struct {
 	mu        sync.RWMutex
 	files     map[string]FileMetadata  // key: path
@@ -70,8 +68,7 @@ func (s *MemoryStore) DeleteFile(path string) error {
 	return nil
 }
 
-// ListFiles devuelve los archivos cuyo path está dentro de dirPath.
-// El resultado no tiene un orden garantizado.
+// ListFiles devuelve los archivos bajo dirPath, sin orden garantizado.
 func (s *MemoryStore) ListFiles(dirPath string) ([]FileMetadata, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -1,7 +1,6 @@
 package store
 
-// Store define el contrato de persistencia de metadatos del metanode.
-// Las implementaciones deben ser seguras para uso concurrente.
+// Store define el contrato de persistencia de metadatos, seguro para uso concurrente.
 type Store interface {
 	// Archivos
 	CreateFile(f FileMetadata) error
