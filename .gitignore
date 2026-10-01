@@ -1,0 +1,29 @@
+# Binaries
+*.exe
+*.out
+*.test
+
+# Go build
+/bin/
+/build/
+dist/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Hidden directories
+.[!.]*/
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
