@@ -11,12 +11,8 @@ func Run() {
 			errorInitializeLogger,
 			err,
 		)
-
 		fmt.Println("error:", message)
-
-		if s.logger != nil {
-			s.logger.Println("error:", message)
-		}
+		return
 	}
 
 	defer closeLogger(s)
