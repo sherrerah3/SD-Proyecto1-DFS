@@ -1,0 +1,7 @@
+
+BEGIN TRANSACTION;
+
+DELETE FROM sessions;
+DELETE FROM users;
+
+COMMIT;
