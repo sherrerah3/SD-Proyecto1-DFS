@@ -17,7 +17,7 @@ const (
 	minUsernameLen = 1
 	maxUsernameLen = 16
 	minPasswordLen = 6
-	maxPasswordLen = 72 
+	maxPasswordLen = 72
 )
 
 // TTL por defecto del JWT de sesión (el capability token usa su propio TTL).
