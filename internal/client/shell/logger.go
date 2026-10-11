@@ -1,9 +1,12 @@
 package shell
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+
+	figure "github.com/common-nighthawk/go-figure"
 )
 
 func newLogger() (*log.Logger, *os.File, error) {
@@ -41,4 +44,37 @@ func newLogger() (*log.Logger, *os.File, error) {
 	)
 
 	return logger, logFile, nil
+}
+
+func closeLogger(s *shell) {
+	if s.logFile == nil {
+		return
+	}
+
+	if err := s.logFile.Close(); err != nil {
+		message := fmt.Sprintf(
+			errorCloseLogger,
+			err,
+		)
+
+		fmt.Println("error:", message)
+	}
+}
+
+func reportShellError(s *shell, message string) {
+	fullMessage := "error: " + message
+
+	fmt.Println(fullMessage)
+
+	if s.logger != nil {
+		s.logger.Println(fullMessage)
+	}
+}
+
+func printBanner() {
+	figure.NewFigure(
+		shellBannerText,
+		"",
+		true,
+	).Print()
 }
