@@ -12,178 +12,178 @@ import (
 
 const testSecret = "test-secret-para-pruebas"
 
-func TestRegisterValido(t *testing.T) {
+func TestRegisterValid(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	s := store.NewMemoryStore()
 
 	if err := Register(s, "ana", "secreta1"); err != nil {
-		t.Fatalf("registro válido falló: %v", err)
+		t.Fatalf("valid registration failed: %v", err)
 	}
 
 	u, err := s.GetUser("ana")
 	if err != nil {
-		t.Fatalf("el usuario no quedó en el store: %v", err)
+		t.Fatalf("user was not saved in the store: %v", err)
 	}
 	if u.PasswordHash == "" || u.PasswordHash == "secreta1" {
-		t.Fatalf("la contraseña no quedó encriptada: %q", u.PasswordHash)
+		t.Fatalf("password was not hashed: %q", u.PasswordHash)
 	}
 }
 
-func TestRegisterDuplicado(t *testing.T) {
+func TestRegisterDuplicate(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	s := store.NewMemoryStore()
 
 	if err := Register(s, "ana", "secreta1"); err != nil {
-		t.Fatalf("primer registro falló: %v", err)
+		t.Fatalf("first registration failed: %v", err)
 	}
 	if err := Register(s, "ana", "secreta1"); err != ErrUserAlreadyExists {
-		t.Fatalf("segundo registro: error = %v, se esperaba ErrUserAlreadyExists", err)
+		t.Fatalf("second registration: error = %v, expected ErrUserAlreadyExists", err)
 	}
 }
 
-func TestRegisterUsernameInvalido(t *testing.T) {
+func TestRegisterInvalidUsername(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 
-	casos := map[string]string{
-		"vacío":     "",
-		"muy largo": strings.Repeat("a", 17),
+	cases := map[string]string{
+		"empty":    "",
+		"too long": strings.Repeat("a", 17),
 	}
 
-	for nombre, username := range casos {
-		t.Run(nombre, func(t *testing.T) {
+	for name, username := range cases {
+		t.Run(name, func(t *testing.T) {
 			s := store.NewMemoryStore()
 			if err := Register(s, username, "secreta1"); err != ErrInvalidUsername {
-				t.Fatalf("error = %v, se esperaba ErrInvalidUsername", err)
+				t.Fatalf("error = %v, expected ErrInvalidUsername", err)
 			}
 		})
 	}
 }
 
-func TestRegisterPasswordInvalida(t *testing.T) {
+func TestRegisterInvalidPassword(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 
-	casos := map[string]string{
-		"muy corta": "abc",
-		"muy larga": strings.Repeat("a", 73),
+	cases := map[string]string{
+		"too short": "abc",
+		"too long":  strings.Repeat("a", 73),
 	}
 
-	for nombre, password := range casos {
-		t.Run(nombre, func(t *testing.T) {
+	for name, password := range cases {
+		t.Run(name, func(t *testing.T) {
 			s := store.NewMemoryStore()
 			if err := Register(s, "ana", password); err != ErrInvalidPassword {
-				t.Fatalf("error = %v, se esperaba ErrInvalidPassword", err)
+				t.Fatalf("error = %v, expected ErrInvalidPassword", err)
 			}
 		})
 	}
 }
 
-func TestLoginValido(t *testing.T) {
+func TestLoginValid(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	s := store.NewMemoryStore()
 	if err := Register(s, "ana", "secreta1"); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	token, err := Login(s, "ana", "secreta1")
 	if err != nil {
-		t.Fatalf("login válido falló: %v", err)
+		t.Fatalf("valid login failed: %v", err)
 	}
 	if token == "" {
-		t.Fatalf("login válido devolvió token vacío")
+		t.Fatalf("valid login returned an empty token")
 	}
 }
 
-func TestLoginPasswordIncorrecta(t *testing.T) {
+func TestLoginWrongPassword(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	s := store.NewMemoryStore()
 	if err := Register(s, "ana", "secreta1"); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	if _, err := Login(s, "ana", "incorrecta"); err != ErrInvalidCredentials {
-		t.Fatalf("error = %v, se esperaba ErrInvalidCredentials", err)
+		t.Fatalf("error = %v, expected ErrInvalidCredentials", err)
 	}
 }
 
-func TestLoginUsuarioInexistente(t *testing.T) {
+func TestLoginNonexistentUser(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	s := store.NewMemoryStore()
 
 	if _, err := Login(s, "nadie", "secreta1"); err != ErrInvalidCredentials {
-		t.Fatalf("error = %v, se esperaba ErrInvalidCredentials", err)
+		t.Fatalf("error = %v, expected ErrInvalidCredentials", err)
 	}
 }
 
-func TestValidateJWTValido(t *testing.T) {
+func TestValidateJWTValid(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	s := store.NewMemoryStore()
 	if err := Register(s, "ana", "secreta1"); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	token, err := Login(s, "ana", "secreta1")
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	sub, err := ValidateJWT(token)
 	if err != nil {
-		t.Fatalf("validar token válido falló: %v", err)
+		t.Fatalf("validating a valid token failed: %v", err)
 	}
 	if sub != "ana" {
-		t.Fatalf("username = %q, se esperaba \"ana\"", sub)
+		t.Fatalf("username = %q, expected \"ana\"", sub)
 	}
 }
 
-func TestValidateJWTInvalido(t *testing.T) {
+func TestValidateJWTInvalid(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 
-	// Token con otra firma: válido en forma, pero firmado con un secreto distinto.
-	otro := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	// Token with a different signature: well-formed, but signed with another secret.
+	other := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": "ana",
 		"exp": time.Now().Add(time.Minute).Unix(),
 	})
-	firmado, err := otro.SignedString([]byte("secreto-equivocado"))
+	signed, err := other.SignedString([]byte("secreto-equivocado"))
 	if err != nil {
-		t.Fatalf("no se pudo firmar el token de prueba: %v", err)
+		t.Fatalf("could not sign the test token: %v", err)
 	}
 
-	casos := map[string]string{
-		"inventado":      "esto.no.es.jwt",
-		"firma distinta": firmado,
+	cases := map[string]string{
+		"made up":             "esto.no.es.jwt",
+		"different signature": signed,
 	}
 
-	for nombre, token := range casos {
-		t.Run(nombre, func(t *testing.T) {
+	for name, token := range cases {
+		t.Run(name, func(t *testing.T) {
 			if _, err := ValidateJWT(token); err != ErrInvalidToken {
-				t.Fatalf("error = %v, se esperaba ErrInvalidToken", err)
+				t.Fatalf("error = %v, expected ErrInvalidToken", err)
 			}
 		})
 	}
 }
 
-func TestCapabilityTokenIdaYVuelta(t *testing.T) {
+func TestCapabilityTokenRoundTrip(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
 	blockIDs := []string{"blk-1", "blk-2", "blk-3"}
 
 	token, err := GenerateCapabilityToken("ana", blockIDs, 30*time.Second)
 	if err != nil {
-		t.Fatalf("generar capability token falló: %v", err)
+		t.Fatalf("generating capability token failed: %v", err)
 	}
 
 	sub, got, err := ValidateCapabilityToken(token)
 	if err != nil {
-		t.Fatalf("validar capability token falló: %v", err)
+		t.Fatalf("validating capability token failed: %v", err)
 	}
 	if sub != "ana" {
-		t.Fatalf("username = %q, se esperaba \"ana\"", sub)
+		t.Fatalf("username = %q, expected \"ana\"", sub)
 	}
 	if len(got) != len(blockIDs) {
-		t.Fatalf("se devolvieron %d bloques, se esperaban %d", len(got), len(blockIDs))
+		t.Fatalf("got %d blocks, expected %d", len(got), len(blockIDs))
 	}
 	for i := range blockIDs {
 		if got[i] != blockIDs[i] {
-			t.Fatalf("bloque[%d] = %q, se esperaba %q", i, got[i], blockIDs[i])
+			t.Fatalf("block[%d] = %q, expected %q", i, got[i], blockIDs[i])
 		}
 	}
 }

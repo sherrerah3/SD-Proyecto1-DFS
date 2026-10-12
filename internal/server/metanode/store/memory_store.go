@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// Aserción en tiempo de compilación: *MemoryStore debe cumplir Store.
+// Valida en tiempo de compilación: *MemoryStore debe cumplir Store.
 var _ Store = (*MemoryStore)(nil)
 
-// MemoryStore implementa Store en memoria, protegido por un único sync.RWMutex.
+// MemoryStore implementa Store en memoria, protegido por un Mutex.
 type MemoryStore struct {
 	mu        sync.RWMutex
 	files     map[string]FileMetadata  // key: path
@@ -141,7 +141,7 @@ func (s *MemoryStore) UpdateHeartbeat(id string, freeBytes int64) error {
 	d.FreeBytes = freeBytes
 	d.LastHeartbeat = time.Now()
 	d.Alive = true
-	s.datanodes[id] = d
+	s.datanodes[id] = d //actualizar original
 
 	return nil
 }

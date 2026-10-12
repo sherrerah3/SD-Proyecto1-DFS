@@ -36,7 +36,7 @@ var (
 	ErrInvalidToken       = errors.New("token inválido o expirado")
 )
 
-// Register valida credenciales, hashea con bcrypt y crea el usuario con cuota en 0.
+// Valida credenciales, hashea con bcrypt y crea el usuario con cuota en 0.
 func Register(s store.Store, username, plaintextPassword string) error {
 	if !validUsername(username) {
 		return ErrInvalidUsername
@@ -51,7 +51,7 @@ func Register(s store.Store, username, plaintextPassword string) error {
 		return fmt.Errorf("no se pudo hashear la contraseña: %w", err)
 	}
 
-	// CreateUser verifica el duplicado bajo su propio lock; crear directo evita el TOCTOU.
+	// CreateUser verifica el duplicado bajo su propio lock
 	if err := s.CreateUser(store.UserInfo{
 		Username:       username,
 		PasswordHash:   string(hash),
@@ -66,11 +66,10 @@ func Register(s store.Store, username, plaintextPassword string) error {
 	return nil
 }
 
-// Login verifica las credenciales y devuelve un JWT de sesión si son correctas.
+// Verifica las credenciales y devuelve un JWT de sesión si son correctas.
 func Login(s store.Store, username, plaintextPassword string) (string, error) {
 	user, err := s.GetUser(username)
 	if err != nil {
-		// Mismo error para usuario inexistente y password mala: no filtrar cuáles usuarios existen.
 		return "", ErrInvalidCredentials
 	}
 
@@ -81,7 +80,7 @@ func Login(s store.Store, username, plaintextPassword string) (string, error) {
 	return generateSessionToken(username, defaultSessionTTL)
 }
 
-// ValidateJWT verifica la firma y expiración de un JWT de sesión y devuelve el username.
+// Verifica la firma y expiración de un JWT de sesión y devuelve el username.
 func ValidateJWT(tokenString string) (string, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
@@ -96,7 +95,7 @@ func ValidateJWT(tokenString string) (string, error) {
 	return sub, nil
 }
 
-// GenerateCapabilityToken emite un JWT de vida corta que autoriza bloques ante los DataNodes.
+// Emite un JWT de vida corta que autoriza bloques ante los DataNodes.
 func GenerateCapabilityToken(username string, blockIDs []string, ttl time.Duration) (string, error) {
 	secret, err := jwtSecret()
 	if err != nil {
@@ -116,7 +115,7 @@ func GenerateCapabilityToken(username string, blockIDs []string, ttl time.Durati
 	return token.SignedString(secret)
 }
 
-// ValidateCapabilityToken verifica el token y devuelve el username y los bloques autorizados.
+// Verifica el token y devuelve el username y los bloques autorizados.
 func ValidateCapabilityToken(tokenString string) (string, []string, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
@@ -199,7 +198,6 @@ func parseToken(tokenString string) (jwt.MapClaims, error) {
 
 	claims := jwt.MapClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
-		// Rechazar cualquier algoritmo que no sea el HMAC que usamos al firmar.
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, ErrInvalidToken
 		}
