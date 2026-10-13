@@ -55,6 +55,18 @@ func (s *MemoryStore) GetFile(path string) (FileMetadata, error) {
 	return f, nil
 }
 
+func (s *MemoryStore) UpdateFile(f FileMetadata) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.files[f.Path]; !ok {
+		return fmt.Errorf("archivo no encontrado: %s", f.Path)
+	}
+
+	s.files[f.Path] = f
+	return nil
+}
+
 func (s *MemoryStore) DeleteFile(path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

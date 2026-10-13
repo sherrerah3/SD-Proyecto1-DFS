@@ -5,6 +5,7 @@ type Store interface {
 	// Archivos
 	CreateFile(f FileMetadata) error
 	GetFile(path string) (FileMetadata, error)
+	UpdateFile(f FileMetadata) error
 	DeleteFile(path string) error
 	ListFiles(dirPath string) ([]FileMetadata, error)
 
