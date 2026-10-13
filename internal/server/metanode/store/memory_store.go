@@ -126,13 +126,10 @@ func (s *MemoryStore) GetBlockLocation(blockID string) (BlockMetadata, error) {
 
 // --- DataNodes ---
 
+// RegisterDataNode sobrescribe si el id ya existe: un nodo reiniciado se re-registra.
 func (s *MemoryStore) RegisterDataNode(d DataNodeInfo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if _, exists := s.datanodes[d.ID]; exists {
-		return fmt.Errorf("el datanode %s ya está registrado", d.ID)
-	}
 
 	d.Alive = true
 	d.LastHeartbeat = time.Now()
@@ -147,13 +144,14 @@ func (s *MemoryStore) UpdateHeartbeat(id string, freeBytes int64) error {
 
 	d, ok := s.datanodes[id]
 	if !ok {
-		return fmt.Errorf("datanode no encontrado: %s", id)
+		return ErrDataNodeNotFound
 	}
 
+	// Un heartbeat revive un nodo que estaba marcado como muerto.
 	d.FreeBytes = freeBytes
 	d.LastHeartbeat = time.Now()
 	d.Alive = true
-	s.datanodes[id] = d //actualizar original
+	s.datanodes[id] = d
 
 	return nil
 }
@@ -171,6 +169,35 @@ func (s *MemoryStore) ListAliveDataNodes() ([]DataNodeInfo, error) {
 	}
 
 	return result, nil
+}
+
+// ListDataNodes devuelve todos los datanodes, vivos y muertos.
+func (s *MemoryStore) ListDataNodes() ([]DataNodeInfo, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]DataNodeInfo, 0, len(s.datanodes))
+	for _, d := range s.datanodes {
+		out = append(out, d)
+	}
+
+	return out, nil
+}
+
+// SetDataNodeAlive marca un datanode como vivo o muerto.
+func (s *MemoryStore) SetDataNodeAlive(id string, alive bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	d, ok := s.datanodes[id]
+	if !ok {
+		return ErrDataNodeNotFound
+	}
+
+	d.Alive = alive
+	s.datanodes[id] = d
+
+	return nil
 }
 
 // --- Usuarios ---

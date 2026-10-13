@@ -1,5 +1,10 @@
 package store
 
+import "errors"
+
+// ErrDataNodeNotFound distingue "no existe" de otros fallos del store
+var ErrDataNodeNotFound = errors.New("datanode no encontrado")
+
 // Store define el contrato de persistencia de metadatos, seguro para uso concurrente.
 type Store interface {
 	// Archivos
@@ -17,6 +22,8 @@ type Store interface {
 	RegisterDataNode(d DataNodeInfo) error
 	UpdateHeartbeat(id string, freeBytes int64) error
 	ListAliveDataNodes() ([]DataNodeInfo, error)
+	ListDataNodes() ([]DataNodeInfo, error)
+	SetDataNodeAlive(id string, alive bool) error
 
 	// Usuarios
 	CreateUser(u UserInfo) error
