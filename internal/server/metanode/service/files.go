@@ -23,7 +23,6 @@ const (
 // Errores tipados para que la API REST los convierta a codigos HTTP
 var (
 	ErrQuotaExceeded    = errors.New("cuota de almacenamiento excedida")
-	ErrForbidden        = errors.New("no tienes permiso sobre este archivo")
 	ErrNotFound         = errors.New("archivo no encontrado")
 	ErrNoDataNodes      = errors.New("no hay datanodes disponibles")
 	ErrInvalidSize      = errors.New("el tamaño del archivo debe ser mayor a 0")
