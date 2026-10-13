@@ -192,29 +192,23 @@ func TestSaveBlockLocationUpsert(t *testing.T) {
 }
 
 func TestRegisterDataNode(t *testing.T) {
-	existing := DataNodeInfo{ID: "dn-1", Address: "127.0.0.1:9000"}
+	s := NewMemoryStore()
 
-	tests := []struct {
-		name    string
-		input   DataNodeInfo
-		wantErr bool
-	}{
-		{name: "registra un datanode nuevo", input: DataNodeInfo{ID: "dn-2", Address: "127.0.0.1:9001"}, wantErr: false},
-		{name: "rechaza un ID duplicado", input: existing, wantErr: true},
+	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1", Address: "127.0.0.1:9000"}); err != nil {
+		t.Fatalf("registro nuevo falló: %v", err)
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			s := NewMemoryStore()
-			if err := s.RegisterDataNode(existing); err != nil {
-				t.Fatalf("preparación falló: %v", err)
-			}
+	// Un re-registro con el mismo ID sobrescribe en vez de fallar.
+	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1", Address: "127.0.0.1:9999"}); err != nil {
+		t.Fatalf("re-registro falló: %v", err)
+	}
 
-			err := s.RegisterDataNode(tc.input)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("RegisterDataNode() error = %v, wantErr = %v", err, tc.wantErr)
-			}
-		})
+	nodes, _ := s.ListAliveDataNodes()
+	if len(nodes) != 1 {
+		t.Fatalf("se esperaba 1 datanode, hay %d", len(nodes))
+	}
+	if nodes[0].Address != "127.0.0.1:9999" {
+		t.Fatalf("el re-registro no sobrescribió la dirección: %q", nodes[0].Address)
 	}
 }
 
@@ -382,5 +376,48 @@ func TestUpdateQuotaUsed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestListDataNodes(t *testing.T) {
+	s := NewMemoryStore()
+
+	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1"}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-2"}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	// Marcar uno como muerto no debe excluirlo de ListDataNodes.
+	if err := s.SetDataNodeAlive("dn-2", false); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	all, err := s.ListDataNodes()
+	if err != nil {
+		t.Fatalf("ListDataNodes() error inesperado: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("ListDataNodes() devolvió %d, se esperaban 2 (vivos y muertos)", len(all))
+	}
+}
+
+func TestSetDataNodeAlive(t *testing.T) {
+	s := NewMemoryStore()
+	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1"}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	if err := s.SetDataNodeAlive("dn-1", false); err != nil {
+		t.Fatalf("SetDataNodeAlive() error inesperado: %v", err)
+	}
+
+	alive, _ := s.ListAliveDataNodes()
+	if len(alive) != 0 {
+		t.Fatalf("tras marcarlo muerto no debería haber nodos vivos, hay %d", len(alive))
+	}
+
+	if err := s.SetDataNodeAlive("inexistente", false); err != ErrDataNodeNotFound {
+		t.Fatalf("error = %v, se esperaba ErrDataNodeNotFound", err)
 	}
 }
