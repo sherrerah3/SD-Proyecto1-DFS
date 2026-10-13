@@ -6,6 +6,9 @@ import (
 	"dfsha/internal/server/metanode/store"
 )
 
+// hashValido es un SHA256 en hex (64 caracteres) para los tests de CompletePut
+const hashValido = "0000000000000000000000000000000000000000000000000000000000000000"
+
 // nuevoStoreConNodos crea un store con un usuario y la cantidad pedida de datanodes vivos
 func nuevoStoreConNodos(t *testing.T, numNodos int) store.Store {
 	t.Helper()
@@ -41,6 +44,21 @@ func TestInitPutValido(t *testing.T) {
 	}
 }
 
+func TestInitPutReservaCuota(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+	size := int64(2 * BlockSizeBytes)
+
+	if _, err := InitPut(s, "ana", "/a.txt", size); err != nil {
+		t.Fatalf("InitPut falló: %v", err)
+	}
+
+	// La cuota se reserva en InitPut, antes de completar la subida.
+	u, _ := s.GetUser("ana")
+	if u.QuotaUsedBytes != size {
+		t.Fatalf("cuota reservada = %d, se esperaba %d", u.QuotaUsedBytes, size)
+	}
+}
+
 func TestInitPutRedondeaHaciaArriba(t *testing.T) {
 	s := nuevoStoreConNodos(t, 3)
 
@@ -51,6 +69,17 @@ func TestInitPutRedondeaHaciaArriba(t *testing.T) {
 	}
 	if len(placements) != 2 {
 		t.Fatalf("se esperaban 2 bloques, hay %d", len(placements))
+	}
+}
+
+func TestInitPutTamanoInvalido(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+
+	if _, err := InitPut(s, "ana", "/a.txt", 0); err != ErrInvalidSize {
+		t.Fatalf("error = %v, se esperaba ErrInvalidSize", err)
+	}
+	if _, err := InitPut(s, "ana", "/a.txt", -5); err != ErrInvalidSize {
+		t.Fatalf("error = %v, se esperaba ErrInvalidSize", err)
 	}
 }
 
@@ -70,24 +99,44 @@ func TestInitPutSinDatanodes(t *testing.T) {
 	}
 }
 
-func TestCompletePutCobraCuota(t *testing.T) {
+func TestCompletePutGuardaHash(t *testing.T) {
 	s := nuevoStoreConNodos(t, 3)
-	size := int64(2 * BlockSizeBytes)
-
-	if _, err := InitPut(s, "ana", "/a.txt", size); err != nil {
+	if _, err := InitPut(s, "ana", "/a.txt", 2*BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
-	if err := CompletePut(s, "ana", "/a.txt", "hash-abc"); err != nil {
+
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
 		t.Fatalf("CompletePut falló: %v", err)
 	}
 
-	u, _ := s.GetUser("ana")
-	if u.QuotaUsedBytes != size {
-		t.Fatalf("cuota usada = %d, se esperaba %d", u.QuotaUsedBytes, size)
-	}
 	f, _ := s.GetFile("/a.txt")
-	if f.SHA256 != "hash-abc" {
-		t.Fatalf("hash = %q, se esperaba \"hash-abc\"", f.SHA256)
+	if f.SHA256 != hashValido {
+		t.Fatalf("hash = %q, se esperaba %q", f.SHA256, hashValido)
+	}
+}
+
+func TestCompletePutHashInvalido(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	if err := CompletePut(s, "ana", "/a.txt", "no-es-un-hash"); err != ErrInvalidHash {
+		t.Fatalf("error = %v, se esperaba ErrInvalidHash", err)
+	}
+}
+
+func TestCompletePutDosVeces(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
+		t.Fatalf("primer CompletePut falló: %v", err)
+	}
+
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != ErrAlreadyCompleted {
+		t.Fatalf("error = %v, se esperaba ErrAlreadyCompleted", err)
 	}
 }
 
@@ -96,13 +145,31 @@ func TestResolveGetValido(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", 2*BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
 
-	blocks, _, err := ResolveGet(s, "ana", "/a.txt")
+	blocks, hash, err := ResolveGet(s, "ana", "/a.txt")
 	if err != nil {
 		t.Fatalf("ResolveGet falló: %v", err)
 	}
 	if len(blocks) != 2 {
 		t.Fatalf("se esperaban 2 bloques, hay %d", len(blocks))
+	}
+	if hash != hashValido {
+		t.Fatalf("hash = %q, se esperaba %q", hash, hashValido)
+	}
+}
+
+func TestResolveGetSubidaIncompleta(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+	// InitPut sin CompletePut: el archivo aún no tiene hash.
+	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	if _, _, err := ResolveGet(s, "ana", "/a.txt"); err != ErrNotFound {
+		t.Fatalf("error = %v, se esperaba ErrNotFound", err)
 	}
 }
 
@@ -111,12 +178,16 @@ func TestResolveGetAjeno(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
 	if err := s.CreateUser(store.UserInfo{Username: "bob"}); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
 
-	if _, _, err := ResolveGet(s, "bob", "/a.txt"); err != ErrForbidden {
-		t.Fatalf("error = %v, se esperaba ErrForbidden", err)
+	// Un archivo ajeno se trata como inexistente, no se revela que existe.
+	if _, _, err := ResolveGet(s, "bob", "/a.txt"); err != ErrNotFound {
+		t.Fatalf("error = %v, se esperaba ErrNotFound", err)
 	}
 }
 
@@ -147,7 +218,7 @@ func TestDeleteFileLiberaCuota(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", size); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
-	if err := CompletePut(s, "ana", "/a.txt", "hash"); err != nil {
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
 
@@ -173,7 +244,8 @@ func TestDeleteFileAjeno(t *testing.T) {
 		t.Fatalf("preparación falló: %v", err)
 	}
 
-	if err := DeleteFile(s, "bob", "/a.txt"); err != ErrForbidden {
-		t.Fatalf("error = %v, se esperaba ErrForbidden", err)
+	// Borrar un archivo ajeno se trata como inexistente.
+	if err := DeleteFile(s, "bob", "/a.txt"); err != ErrNotFound {
+		t.Fatalf("error = %v, se esperaba ErrNotFound", err)
 	}
 }
