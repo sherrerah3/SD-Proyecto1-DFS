@@ -1,10 +1,11 @@
 package service
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"path"
+	"sort"
 	"sync/atomic"
 
 	"github.com/google/uuid"
@@ -21,10 +22,14 @@ const (
 
 // Errores tipados para que la API REST los convierta a codigos HTTP
 var (
-	ErrQuotaExceeded = errors.New("cuota de almacenamiento excedida")
-	ErrForbidden     = errors.New("no tienes permiso sobre este archivo")
-	ErrNotFound      = errors.New("archivo no encontrado")
-	ErrNoDataNodes   = errors.New("no hay datanodes disponibles")
+	ErrQuotaExceeded    = errors.New("cuota de almacenamiento excedida")
+	ErrForbidden        = errors.New("no tienes permiso sobre este archivo")
+	ErrNotFound         = errors.New("archivo no encontrado")
+	ErrNoDataNodes      = errors.New("no hay datanodes disponibles")
+	ErrInvalidSize      = errors.New("el tamaño del archivo debe ser mayor a 0")
+	ErrAlreadyExists    = errors.New("ya existe un archivo en esa ruta")
+	ErrAlreadyCompleted = errors.New("la subida de este archivo ya fue completada")
+	ErrInvalidHash      = errors.New("hash SHA256 inválido")
 )
 
 // Indice global de Round Robin que avanza por cada replica asignada
@@ -38,18 +43,31 @@ type BlockPlacement struct {
 
 // InitPut inicia la subida: valida cuota, reparte bloques y registra la metadata
 func InitPut(s store.Store, username, filePath string, sizeBytes int64) ([]BlockPlacement, error) {
+	if sizeBytes <= 0 {
+		return nil, ErrInvalidSize
+	}
+
+	// Solo se permite reemplazar una subida abandonada (sin hash) del mismo usuario.
+	if existing, err := s.GetFile(filePath); err == nil {
+		if existing.Owner != username || existing.SHA256 != "" {
+			return nil, ErrAlreadyExists
+		}
+		if err := DeleteFile(s, username, filePath); err != nil {
+			return nil, err
+		}
+	}
+
+	// Se lee el usuario DESPUES del posible borrado, para ver la cuota actualizada.
 	user, err := s.GetUser(username)
 	if err != nil {
 		return nil, fmt.Errorf("usuario no encontrado: %w", err)
 	}
-
-	// la cuota se valida antes de gastar trabajo en el reparto
 	if user.QuotaUsedBytes+sizeBytes > MaxUserQuotaBytes {
 		return nil, ErrQuotaExceeded
 	}
 
-	// division hacia arriba para no quedar cortos un bloque
-	numBlocks := int(math.Ceil(float64(sizeBytes) / float64(BlockSizeBytes)))
+	// Division entera hacia arriba (evita decimales de float64).
+	numBlocks := int((sizeBytes + BlockSizeBytes - 1) / BlockSizeBytes)
 
 	aliveNodes, err := s.ListAliveDataNodes()
 	if err != nil {
@@ -59,36 +77,26 @@ func InitPut(s store.Store, username, filePath string, sizeBytes int64) ([]Block
 		return nil, fmt.Errorf("%w: hay %d pero se necesitan al menos %d",
 			ErrNoDataNodes, len(aliveNodes), ReplicationFactor)
 	}
+	// Un map de Go no tiene orden fijo; sin ordenar, el Round Robin seria aleatorio.
+	sort.Slice(aliveNodes, func(i, j int) bool { return aliveNodes[i].ID < aliveNodes[j].ID })
 
+	// Primero se arma todo en memoria.
 	placements := make([]BlockPlacement, 0, numBlocks)
 	blockIDs := make([]string, 0, numBlocks)
-
-	// por cada bloque, ID unico y ReplicationFactor datanodes por Round Robin
 	for i := 0; i < numBlocks; i++ {
 		blockID := uuid.NewString()
 		blockIDs = append(blockIDs, blockID)
 
+		// Reserva atomica de los indices del bloque: ninguna otra peticion se cuela en medio.
+		start := rrIndex.Add(ReplicationFactor) - ReplicationFactor
 		nodes := make([]string, 0, ReplicationFactor)
-		for r := 0; r < ReplicationFactor; r++ {
-			idx := int(rrIndex.Add(1)-1) % len(aliveNodes)
-			nodes = append(nodes, aliveNodes[idx].Address)
+		for r := uint64(0); r < ReplicationFactor; r++ {
+			nodes = append(nodes, aliveNodes[(start+r)%uint64(len(aliveNodes))].Address)
 		}
-
-		// anotar la ubicacion de cada bloque
-		if err := s.SaveBlockLocation(store.BlockMetadata{
-			BlockID:   blockID,
-			DataNodes: nodes,
-		}); err != nil {
-			return nil, fmt.Errorf("error al guardar bloque %s: %w", blockID, err)
-		}
-
-		placements = append(placements, BlockPlacement{
-			BlockID:   blockID,
-			DataNodes: nodes,
-		})
+		placements = append(placements, BlockPlacement{BlockID: blockID, DataNodes: nodes})
 	}
 
-	// registrar el archivo sin hash todavia (aun no termina de subir)
+	// CreateFile va primero: si la ruta esta ocupada, falla sin dejar bloques huerfanos.
 	if err := s.CreateFile(store.FileMetadata{
 		Name:      path.Base(filePath),
 		Path:      filePath,
@@ -99,48 +107,49 @@ func InitPut(s store.Store, username, filePath string, sizeBytes int64) ([]Block
 	}); err != nil {
 		return nil, fmt.Errorf("error al registrar archivo: %w", err)
 	}
+	for _, p := range placements {
+		if err := s.SaveBlockLocation(store.BlockMetadata{BlockID: p.BlockID, DataNodes: p.DataNodes}); err != nil {
+			return nil, fmt.Errorf("error al guardar bloque %s: %w", p.BlockID, err)
+		}
+	}
 
-	// devolver el plan; a partir de aqui el cliente habla con los DataNodes
+	// La cuota se RESERVA aqui.
+	if err := s.UpdateQuotaUsed(username, sizeBytes); err != nil {
+		return nil, fmt.Errorf("error al reservar cuota: %w", err)
+	}
+
 	return placements, nil
 }
 
 // CompletePut cierra la subida: guarda el hash y descuenta la cuota del usuario
 func CompletePut(s store.Store, username, filePath, sha256Hash string) error {
 	file, err := s.GetFile(filePath)
-	if err != nil {
+	if err != nil || file.Owner != username {
 		return ErrNotFound
 	}
-
-	if file.Owner != username {
-		return ErrForbidden
+	if file.SHA256 != "" {
+		return ErrAlreadyCompleted
+	}
+	// un SHA256 en hexadecimal mide siempre 64 caracteres (32 bytes)
+	if raw, err := hex.DecodeString(sha256Hash); err != nil || len(raw) != 32 {
+		return ErrInvalidHash
 	}
 
-	// La interfaz Store no tiene update, asi que se borra y se recrea con el hash
 	file.SHA256 = sha256Hash
-	if err := s.DeleteFile(filePath); err != nil {
+	if err := s.UpdateFile(file); err != nil {
 		return fmt.Errorf("error al actualizar archivo: %w", err)
 	}
-	if err := s.CreateFile(file); err != nil {
-		return fmt.Errorf("error al actualizar archivo: %w", err)
-	}
-
-	// La cuota se cobra aqui, cuando la subida ya termino de verdad
-	if err := s.UpdateQuotaUsed(username, file.SizeBytes); err != nil {
-		return fmt.Errorf("error al actualizar cuota: %w", err)
-	}
-
 	return nil
 }
 
 // ResolveGet valida el dueño y devuelve los bloques del archivo y su hash
 func ResolveGet(s store.Store, username, filePath string) ([]store.BlockMetadata, string, error) {
 	file, err := s.GetFile(filePath)
-	if err != nil {
+	if err != nil || file.Owner != username {
 		return nil, "", ErrNotFound
 	}
-
-	if file.Owner != username {
-		return nil, "", ErrForbidden
+	if file.SHA256 == "" {
+		return nil, "", ErrNotFound // la subida aun no termina
 	}
 
 	blocks := make([]store.BlockMetadata, 0, len(file.BlockIDs))
@@ -174,20 +183,17 @@ func ListDir(s store.Store, username, dirPath string) ([]store.FileMetadata, err
 
 // DeleteFile valida el dueño, borra la metadata y libera la cuota
 func DeleteFile(s store.Store, username, filePath string) error {
+	// Un archivo ajeno se trata como inexistente, igual que en ResolveGet.
 	file, err := s.GetFile(filePath)
-	if err != nil {
+	if err != nil || file.Owner != username {
 		return ErrNotFound
-	}
-
-	if file.Owner != username {
-		return ErrForbidden
 	}
 
 	if err := s.DeleteFile(filePath); err != nil {
 		return fmt.Errorf("error al borrar archivo: %w", err)
 	}
 
-	// Lo contrario exacto de CompletePut: devolver la cuota usada
+	// Devuelve la cuota que InitPut habia reservado para este archivo.
 	if err := s.UpdateQuotaUsed(username, -file.SizeBytes); err != nil {
 		return fmt.Errorf("error al actualizar cuota: %w", err)
 	}
