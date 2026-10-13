@@ -187,3 +187,25 @@ func TestCapabilityTokenRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestTokensNoSonIntercambiables(t *testing.T) {
+	t.Setenv(jwtSecretEnvVar, testSecret)
+
+	// Un capability token no debe valer como token de sesión.
+	capTok, err := GenerateCapabilityToken("ana", []string{"blk-1"}, 30*time.Second)
+	if err != nil {
+		t.Fatalf("generar capability token falló: %v", err)
+	}
+	if _, err := ValidateJWT(capTok); err != ErrInvalidToken {
+		t.Fatalf("ValidateJWT aceptó un capability token: err = %v", err)
+	}
+
+	// Un token de sesión no debe valer como capability token.
+	ses, err := generateSessionToken("ana", SessionTTL)
+	if err != nil {
+		t.Fatalf("generar token de sesión falló: %v", err)
+	}
+	if _, _, err := ValidateCapabilityToken(ses); err != ErrInvalidToken {
+		t.Fatalf("ValidateCapabilityToken aceptó un token de sesión: err = %v", err)
+	}
+}

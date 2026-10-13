@@ -20,11 +20,17 @@ const (
 	maxPasswordLen = 72
 )
 
-// TTL por defecto del JWT de sesión (el capability token usa su propio TTL).
-const defaultSessionTTL = 5 * time.Minute
+// SessionTTL es la duración del JWT de sesión (el capability token usa su propio TTL).
+const SessionTTL = 5 * time.Minute
 
 // Nombre de la variable de entorno con la clave de firma de los JWT.
 const jwtSecretEnvVar = "METANODE_JWT_SECRET"
+
+// Tipos de token: distinguen un JWT de sesión de un capability token.
+const (
+	tokenTypeSession    = "session"
+	tokenTypeCapability = "capability"
+)
 
 // Errores tipados para que las capas superiores los mapeen a códigos HTTP.
 var (
@@ -77,13 +83,18 @@ func Login(s store.Store, username, plaintextPassword string) (string, error) {
 		return "", ErrInvalidCredentials
 	}
 
-	return generateSessionToken(username, defaultSessionTTL)
+	return generateSessionToken(username, SessionTTL)
 }
 
 // Verifica la firma y expiración de un JWT de sesión y devuelve el username.
 func ValidateJWT(tokenString string) (string, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
+		return "", err
+	}
+
+	// Un capability token no debe servir como token de sesión.
+	if err := requireTokenType(claims, tokenTypeSession); err != nil {
 		return "", err
 	}
 
@@ -105,6 +116,7 @@ func GenerateCapabilityToken(username string, blockIDs []string, ttl time.Durati
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":       username,
+		"typ":       tokenTypeCapability,
 		"block_ids": blockIDs,
 		"iat":       now.Unix(),
 		"exp":       now.Add(ttl).Unix(),
@@ -119,6 +131,11 @@ func GenerateCapabilityToken(username string, blockIDs []string, ttl time.Durati
 func ValidateCapabilityToken(tokenString string) (string, []string, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
+		return "", nil, err
+	}
+
+	// Un token de sesión no debe servir como capability token.
+	if err := requireTokenType(claims, tokenTypeCapability); err != nil {
 		return "", nil, err
 	}
 
@@ -181,6 +198,7 @@ func generateSessionToken(username string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub": username,
+		"typ": tokenTypeSession,
 		"iat": now.Unix(),
 		"exp": now.Add(ttl).Unix(),
 	}
@@ -188,6 +206,14 @@ func generateSessionToken(username string, ttl time.Duration) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	return token.SignedString(secret)
+}
+
+// requireTokenType rechaza el token si su claim "typ" no es el esperado.
+func requireTokenType(claims jwt.MapClaims, want string) error {
+	if typ, _ := claims["typ"].(string); typ != want {
+		return ErrInvalidToken
+	}
+	return nil
 }
 
 func parseToken(tokenString string) (jwt.MapClaims, error) {
