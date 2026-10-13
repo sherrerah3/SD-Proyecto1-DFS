@@ -28,3 +28,8 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Documentos aparte
+Division.md
+Sistemas-Distribuidos.md
+Taller-SG-beta.md
