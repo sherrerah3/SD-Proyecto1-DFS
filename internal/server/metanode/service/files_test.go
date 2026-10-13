@@ -191,17 +191,40 @@ func TestResolveGetAjeno(t *testing.T) {
 	}
 }
 
+// subir hace InitPut + CompletePut para dejar el archivo listo en el store
+func subir(t *testing.T, s store.Store, user, filePath string) {
+	t.Helper()
+	if _, err := InitPut(s, user, filePath, BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	if err := CompletePut(s, user, filePath, hashValido); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+}
+
+func TestListDirSoloHijosDirectos(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+
+	subir(t, s, "ana", "/home/ana/a.txt")     // hijo directo: sí
+	subir(t, s, "ana", "/home/ana/sub/b.txt") // nieto: no
+
+	files, err := ListDir(s, "ana", "/home/ana")
+	if err != nil {
+		t.Fatalf("ListDir falló: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "/home/ana/a.txt" {
+		t.Fatalf("ListDir debió devolver solo el hijo directo, obtuvo %d", len(files))
+	}
+}
+
 func TestListDirSoloDelUsuario(t *testing.T) {
 	s := nuevoStoreConNodos(t, 3)
 	if err := s.CreateUser(store.UserInfo{Username: "bob"}); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
-	if _, err := InitPut(s, "ana", "/home/ana/a.txt", BlockSizeBytes); err != nil {
-		t.Fatalf("preparación falló: %v", err)
-	}
-	if _, err := InitPut(s, "bob", "/home/ana/b.txt", BlockSizeBytes); err != nil {
-		t.Fatalf("preparación falló: %v", err)
-	}
+
+	subir(t, s, "ana", "/home/ana/a.txt")
+	subir(t, s, "bob", "/home/ana/b.txt") // mismo dir, otro dueño
 
 	files, err := ListDir(s, "ana", "/home/ana")
 	if err != nil {
@@ -209,6 +232,24 @@ func TestListDirSoloDelUsuario(t *testing.T) {
 	}
 	if len(files) != 1 || files[0].Owner != "ana" {
 		t.Fatalf("ListDir debió devolver solo el archivo de ana, obtuvo %d", len(files))
+	}
+}
+
+func TestListDirOmiteSubidasIncompletas(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+
+	subir(t, s, "ana", "/home/ana/listo.txt")
+	// Esta queda sin CompletePut: no debe aparecer.
+	if _, err := InitPut(s, "ana", "/home/ana/a-medias.txt", BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	files, err := ListDir(s, "ana", "/home/ana")
+	if err != nil {
+		t.Fatalf("ListDir falló: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "/home/ana/listo.txt" {
+		t.Fatalf("ListDir debió omitir la subida incompleta, obtuvo %d", len(files))
 	}
 }
 

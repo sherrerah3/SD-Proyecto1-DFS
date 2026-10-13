@@ -163,8 +163,11 @@ func ResolveGet(s store.Store, username, filePath string) ([]store.BlockMetadata
 	return blocks, file.SHA256, nil
 }
 
-// ListDir devuelve los archivos del usuario que cuelgan de dirPath
+// ListDir devuelve los archivos del usuario, ya subidos, que son hijos directos de dirPath
 func ListDir(s store.Store, username, dirPath string) ([]store.FileMetadata, error) {
+	// Se normaliza aqui para no depender de que el caller mande la ruta limpia.
+	dirPath = path.Clean(dirPath)
+
 	all, err := s.ListFiles(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("error al listar archivos: %w", err)
@@ -172,7 +175,8 @@ func ListDir(s store.Store, username, dirPath string) ([]store.FileMetadata, err
 
 	owned := make([]store.FileMetadata, 0, len(all))
 	for _, file := range all {
-		if file.Owner == username {
+		// del usuario, subida terminada, y hijo directo de dirPath
+		if file.Owner == username && file.SHA256 != "" && path.Dir(file.Path) == dirPath {
 			owned = append(owned, file)
 		}
 	}
