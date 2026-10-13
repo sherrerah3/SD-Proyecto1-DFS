@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -240,4 +241,42 @@ func (s *MemoryStore) UpdateQuotaUsed(username string, deltaBytes int64) error {
 	s.users[username] = u
 
 	return nil
+}
+
+// --- Snapshot para persistencia ---
+
+// snapshot es el estado persistente, sin datanodes (su estado se reconstruye solo).
+type snapshot struct {
+	Files  map[string]FileMetadata  `json:"files"`
+	Blocks map[string]BlockMetadata `json:"blocks"`
+	Users  map[string]UserInfo      `json:"users"`
+}
+
+// Snapshot serializa el estado persistente (sin DataNodes).
+func (s *MemoryStore) Snapshot() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return json.Marshal(snapshot{Files: s.files, Blocks: s.blocks, Users: s.users})
+}
+
+// Restore reemplaza el estado con el contenido de un snapshot.
+func (s *MemoryStore) Restore(data []byte) error {
+	var snap snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.files = orEmpty(snap.Files)
+	s.blocks = orEmpty(snap.Blocks)
+	s.users = orEmpty(snap.Users)
+	return nil
+}
+
+// orEmpty devuelve un mapa vacío si el recibido es nil.
+func orEmpty[K comparable, V any](m map[K]V) map[K]V {
+	if m == nil {
+		return make(map[K]V)
+	}
+	return m
 }
