@@ -2,7 +2,9 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -13,19 +15,21 @@ var _ Store = (*MemoryStore)(nil)
 
 // MemoryStore implementa Store en memoria, protegido por un Mutex.
 type MemoryStore struct {
-	mu        sync.RWMutex
-	files     map[string]FileMetadata  // key: path
-	blocks    map[string]BlockMetadata // key: blockID
-	datanodes map[string]DataNodeInfo  // key: datanode ID
-	users     map[string]UserInfo      // key: username
+	mu          sync.RWMutex
+	files       map[string]FileMetadata  // key: path
+	blocks      map[string]BlockMetadata // key: blockID
+	datanodes   map[string]DataNodeInfo  // key: datanode ID
+	users       map[string]UserInfo      // key: username
+	directories map[string]bool          // key: directories
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		files:     make(map[string]FileMetadata),
-		blocks:    make(map[string]BlockMetadata),
-		datanodes: make(map[string]DataNodeInfo),
-		users:     make(map[string]UserInfo),
+		files:       make(map[string]FileMetadata),
+		blocks:      make(map[string]BlockMetadata),
+		datanodes:   make(map[string]DataNodeInfo),
+		users:       make(map[string]UserInfo),
+		directories: make(map[string]bool),
 	}
 }
 
@@ -247,16 +251,22 @@ func (s *MemoryStore) UpdateQuotaUsed(username string, deltaBytes int64) error {
 
 // snapshot es el estado persistente, sin datanodes (su estado se reconstruye solo).
 type snapshot struct {
-	Files  map[string]FileMetadata  `json:"files"`
-	Blocks map[string]BlockMetadata `json:"blocks"`
-	Users  map[string]UserInfo      `json:"users"`
+	Files       map[string]FileMetadata  `json:"files"`
+	Blocks      map[string]BlockMetadata `json:"blocks"`
+	Users       map[string]UserInfo      `json:"users"`
+	Directories map[string]bool          `json:"directories"`
 }
 
 // Snapshot serializa el estado persistente (sin DataNodes).
 func (s *MemoryStore) Snapshot() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return json.Marshal(snapshot{Files: s.files, Blocks: s.blocks, Users: s.users})
+	return json.Marshal(snapshot{
+		Files:       s.files,
+		Blocks:      s.blocks,
+		Users:       s.users,
+		Directories: s.directories,
+	})
 }
 
 // Restore reemplaza el estado con el contenido de un snapshot.
@@ -270,6 +280,7 @@ func (s *MemoryStore) Restore(data []byte) error {
 	s.files = orEmpty(snap.Files)
 	s.blocks = orEmpty(snap.Blocks)
 	s.users = orEmpty(snap.Users)
+	s.directories = orEmpty(snap.Directories)
 	return nil
 }
 
@@ -279,4 +290,84 @@ func orEmpty[K comparable, V any](m map[K]V) map[K]V {
 		return make(map[K]V)
 	}
 	return m
+}
+
+var (
+	ErrDirectoryNotFound = errors.New("directorio no encontrado")
+	ErrDirectoryExists   = errors.New("el directorio ya existe")
+	ErrDirectoryNotEmpty = errors.New("el directorio no está vacío")
+)
+
+func directoryKey(username, dirPath string) string {
+	return username + "\x00" + path.Clean(dirPath)
+}
+
+func (s *MemoryStore) DirectoryExists(username, dirPath string) bool {
+	dirPath = path.Clean(dirPath)
+
+	if dirPath == "/" {
+		return true
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.directories[directoryKey(username, dirPath)]
+}
+
+func (s *MemoryStore) CreateDirectory(username, dirPath string) error {
+	dirPath = path.Clean(dirPath)
+
+	if dirPath == "/" {
+		return ErrDirectoryExists
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := directoryKey(username, dirPath)
+
+	if s.directories[key] {
+		return ErrDirectoryExists
+	}
+
+	parent := path.Dir(dirPath)
+	if parent != "/" && !s.directories[directoryKey(username, parent)] {
+		return ErrDirectoryNotFound
+	}
+
+	s.directories[key] = true
+	return nil
+}
+
+// ListDirectories devuelve los directorios hijos directos de dirPath
+// que pertenecen al usuario indicado.
+func (s *MemoryStore) ListDirectories(
+	username string,
+	dirPath string,
+) ([]string, error) {
+	dirPath = path.Clean(dirPath)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	prefix := username + "\x00"
+
+	result := make([]string, 0)
+
+	for key := range s.directories {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		// La clave tiene el formato username + "\x00" + ruta.
+		dir := strings.TrimPrefix(key, prefix)
+
+		// Solo incluir los hijos directos, no todos los descendientes.
+		if path.Dir(dir) == dirPath {
+			result = append(result, path.Base(dir))
+		}
+	}
+
+	return result, nil
 }

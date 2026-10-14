@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"dfsha/internal/client/api"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,22 +15,33 @@ func checkSession(s *shell) error {
 		return fmt.Errorf("failed to load session: %w", err)
 	}
 
-	if currentSession == nil {
-		s.session = nil
-		return nil
-	}
-
 	if !verifySession(currentSession) {
-		if err := clearSession(); err != nil {
-			return fmt.Errorf("failed to clear invalid session: %w", err)
+		if currentSession != nil {
+			if err := clearSession(); err != nil {
+				return fmt.Errorf("failed to clear invalid session: %w", err)
+			}
 		}
 
 		s.session = nil
 		return nil
 	}
 
-	s.session = currentSession
+	if err := s.metanode.ValidateSession(currentSession.Token); err != nil {
+		var apiErr *api.Error
 
+		if errors.As(err, &apiErr) && apiErr.Status == 401 {
+			if clearErr := clearSession(); clearErr != nil {
+				return fmt.Errorf("failed to clear expired session: %w", clearErr)
+			}
+
+			s.session = nil
+			return nil
+		}
+
+		return fmt.Errorf("failed to validate session: %w", err)
+	}
+
+	s.session = currentSession
 	return nil
 }
 

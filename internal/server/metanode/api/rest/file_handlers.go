@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"path"
 	"time"
 
 	"dfsha/internal/server/metanode/service"
@@ -140,6 +141,7 @@ type fileEntry struct {
 	Path      string `json:"path"`
 	SizeBytes int64  `json:"size_bytes"`
 	Owner     string `json:"owner"`
+	Kind      string `json:"kind"`
 }
 
 func (srv *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
@@ -149,16 +151,47 @@ func (srv *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := service.ListDir(srv.store, usernameFrom(r), dir)
+	username := usernameFrom(r)
+
+	// Obtener los archivos del directorio.
+	files, err := service.ListDir(srv.store, username, dir)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 
-	entries := make([]fileEntry, 0, len(files)) // lista vacia => [] y no null
-	for _, f := range files {
-		entries = append(entries, fileEntry{Name: f.Name, Path: f.Path, SizeBytes: f.SizeBytes, Owner: f.Owner})
+	// Obtener los directorios hijos directos.
+	directories, err := srv.store.ListDirectories(username, dir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "no se pudieron listar los directorios")
+		return
 	}
+
+	entries := make([]fileEntry, 0, len(files)+len(directories))
+
+	// Añadir archivos.
+	for _, f := range files {
+		entries = append(entries, fileEntry{
+			Name:      f.Name,
+			Path:      f.Path,
+			SizeBytes: f.SizeBytes,
+			Owner:     f.Owner,
+			Kind:      "file",
+		})
+	}
+
+	// Añadir directorios.
+	for _, name := range directories {
+		dirPath := path.Join(dir, name)
+
+		entries = append(entries, fileEntry{
+			Name:  name,
+			Path:  dirPath,
+			Owner: username,
+			Kind:  "directory",
+		})
+	}
+
 	writeJSON(w, http.StatusOK, entries)
 }
 

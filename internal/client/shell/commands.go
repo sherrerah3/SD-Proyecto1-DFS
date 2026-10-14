@@ -85,7 +85,6 @@ const (
 	descriptionClose    = "Close a file"
 	descriptionRead     = "Read from a file"
 	descriptionWrite    = "Write to a file"
-	descriptionLock     = "Lock a file"
 	descriptionExit     = "Exit " + shellVarProjectName + " (Ctrl+C)"
 )
 
@@ -191,12 +190,6 @@ var defaultCommands = []command{
 		description:  descriptionWrite,
 		requiresAuth: true,
 		execute:      handleWrite,
-	},
-	{
-		name:         commandLock,
-		description:  descriptionLock,
-		requiresAuth: true,
-		execute:      handleLock,
 	},
 	{
 		name:         commandExit,

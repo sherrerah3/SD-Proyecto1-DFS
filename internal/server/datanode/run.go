@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 
 	"google.golang.org/grpc"
 
@@ -41,7 +42,28 @@ func Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	agent := heartbeat.NewAgent(cfg.ID, cfg.Addr, store, heartbeat.NewLogReporter(), nil)
+	metanodeURL := os.Getenv("DFSHA_METANODE_URL")
+	if metanodeURL == "" {
+		metanodeURL = "http://localhost:8080"
+	}
+
+	advertiseAddr := os.Getenv("DFSHA_DATANODE_ADVERTISE_ADDR")
+	if advertiseAddr == "" {
+		_, port, err := net.SplitHostPort(cfg.Addr)
+		if err != nil {
+			return fmt.Errorf("dirección gRPC inválida %q: %w", cfg.Addr, err)
+		}
+
+		advertiseAddr = net.JoinHostPort("localhost", port)
+	}
+
+	agent := heartbeat.NewAgent(
+		cfg.ID,
+		advertiseAddr,
+		store,
+		heartbeat.NewHTTPReporter(metanodeURL),
+		nil,
+	)
 
 	go func() {
 		if err := agent.Run(ctx); err != nil && ctx.Err() == nil {

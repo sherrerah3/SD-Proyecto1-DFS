@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/hitraa/readline v1.1.1
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect

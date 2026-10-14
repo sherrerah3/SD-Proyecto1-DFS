@@ -121,3 +121,10 @@ func (p *PersistentStore) UpdateQuotaUsed(username string, delta int64) error {
 	}
 	return p.persist()
 }
+
+func (p *PersistentStore) CreateDirectory(username, dirPath string) error {
+	if err := p.MemoryStore.CreateDirectory(username, dirPath); err != nil {
+		return err
+	}
+	return p.persist()
+}

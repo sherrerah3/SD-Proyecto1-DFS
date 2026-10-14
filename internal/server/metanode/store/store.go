@@ -29,4 +29,9 @@ type Store interface {
 	CreateUser(u UserInfo) error
 	GetUser(username string) (UserInfo, error)
 	UpdateQuotaUsed(username string, deltaBytes int64) error
+
+	// Directorios
+	CreateDirectory(username, dirPath string) error
+	DirectoryExists(username, dirPath string) bool
+	ListDirectories(username, dirPath string) ([]string, error)
 }

@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bufio"
+	"dfsha/internal/client/api"
 	"log"
 	"os"
 )
@@ -11,6 +12,7 @@ type shell struct {
 	commands    []command
 	session     *session
 	currentPath string
+	metanode    *api.Client
 	logger      *log.Logger
 	logFile     *os.File
 }

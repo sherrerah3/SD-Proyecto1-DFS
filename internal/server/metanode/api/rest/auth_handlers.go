@@ -43,3 +43,9 @@ func (srv *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		ExpiresIn: int(service.SessionTTL.Seconds()),
 	})
 }
+
+func (srv *Server) handleValidateSession(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"username": usernameFrom(r),
+	})
+}

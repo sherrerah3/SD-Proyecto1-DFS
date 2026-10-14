@@ -28,6 +28,15 @@ func (srv *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /files/{path...}", RequireAuth(srv.handleGetFile))
 	mux.HandleFunc("GET /files", RequireAuth(srv.handleListFiles))
 	mux.HandleFunc("DELETE /files/{path...}", RequireAuth(srv.handleDeleteFile))
+	mux.HandleFunc("POST /directories", RequireAuth(srv.handleCreateDirectory))
+	mux.HandleFunc("GET /directories/exists", RequireAuth(srv.handleDirectoryExists))
+
+	// Endpoint para checkear si el token actual del usuario aún sirve
+	mux.HandleFunc("GET /auth/session", RequireAuth(srv.handleValidateSession))
+
+	// Registro y heartbeat de DataNodes.
+	mux.HandleFunc("POST /internal/datanodes/register", srv.handleRegisterDataNode)
+	mux.HandleFunc("POST /internal/datanodes/heartbeat", srv.handleDataNodeHeartbeat)
 
 	return mux
 }

@@ -2,8 +2,11 @@ package shell
 
 import (
 	"bufio"
+	"dfsha/internal/client/api"
 	"fmt"
 	"os"
+
+	"github.com/hitraa/readline"
 )
 
 func Run() {
@@ -46,13 +49,18 @@ func Run() {
 
 	fmt.Println()
 
-	for {
-		fmt.Printf(
-			"%s> ",
-			shellVarProjectName,
+	editor, err := newLineEditor()
+	if err != nil {
+		reportShellError(
+			s,
+			fmt.Sprintf(errorInitializeLogger, err),
 		)
+		return
+	}
+	defer editor.Close()
 
-		input, err := readInput(s)
+	for {
+		input, err := readInput(s, editor)
 		if err != nil {
 			reportShellError(
 				s,
@@ -63,7 +71,6 @@ func Run() {
 			)
 
 			fmt.Println(messageShellTerminated)
-
 			return
 		}
 
@@ -85,6 +92,7 @@ func newShell() (*shell, error) {
 		commands:    defaultCommands,
 		session:     nil,
 		currentPath: shellDefaultPath,
+		metanode:    api.New(),
 		logger:      logger,
 		logFile:     logFile,
 	}
@@ -97,4 +105,25 @@ func newShell() (*shell, error) {
 	}
 
 	return s, nil
+}
+
+func newLineEditor() (*readline.Editor, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+
+	historyDir := configDir + string(os.PathSeparator) + "dfsha"
+
+	if err := os.MkdirAll(historyDir, 0700); err != nil {
+		return nil, err
+	}
+
+	historyFile := historyDir + string(os.PathSeparator) + "history"
+
+	return readline.New(readline.Config{
+		Prompt:      shellVarProjectName + "> ",
+		HistoryFile: historyFile,
+		MaxHistory:  1000,
+	})
 }
