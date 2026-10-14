@@ -65,3 +65,33 @@ shell/
 ```
 
 `[HANDLERS]` contiene la ejecución de comandos, `[SESSION]` contiene la gestión de sesiones, `[CORE]` contiene la lógica y declaraciones principales del shell, y `[OTHER]` contiene funciones auxiliares.
+
+## Código gRPC generado
+
+Los contratos gRPC viven en `proto/` y el código Go generado se versiona en el
+repositorio bajo `internal/proto/`. Por eso, para compilar y ejecutar el
+proyecto solo se necesita Go: no hay que instalar nada más.
+
+```powershell
+go build ./...
+```
+
+### Regenerar (solo si se edita un `.proto`)
+
+Quien modifique un archivo `.proto` debe regenerar y commitear el resultado.
+Se usa [buf](https://buf.build) con los plugins de Go. Instalación por única vez:
+
+```powershell
+go install github.com/bufbuild/buf/cmd/buf@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+Generación (desde la raíz del proyecto):
+
+```powershell
+buf generate proto
+```
+
+El binario de los plugins queda en el `bin` de Go (`go env GOPATH\bin`), que
+debe estar en el `PATH`.
