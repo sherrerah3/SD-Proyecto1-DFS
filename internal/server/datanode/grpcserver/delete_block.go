@@ -15,6 +15,11 @@ func (s *Server) DeleteBlock(ctx context.Context, req *datanodev1.DeleteBlockReq
 		return nil, status.Error(codes.InvalidArgument, "block_id vacío")
 	}
 
+	// Solo nodos del clúster pueden borrar.
+	if err := s.requireClusterSecret(ctx); err != nil {
+		return nil, err
+	}
+
 	deleted, err := s.store.Delete(req.GetBlockId())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "falló al borrar el bloque: %v", err)

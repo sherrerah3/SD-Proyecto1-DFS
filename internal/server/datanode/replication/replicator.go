@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	datanodev1 "dfsha/internal/proto/datanode/v1"
 )
@@ -16,12 +17,18 @@ const replicaChunkSize = 64 * 1024 // 64 KB
 // Replicator reenvía bloques a otros DataNodes para cumplir la tasa de réplicas.
 type Replicator struct {
 	// dial permite inyectar la forma de conectarse (facilita las pruebas).
-	dial func(ctx context.Context, target string) (datanodev1.BlockServiceClient, func() error, error)
+	dial          func(ctx context.Context, target string) (datanodev1.BlockServiceClient, func() error, error)
+	clusterSecret string
 }
 
 // NewReplicator crea un Replicator que se conecta por gRPC a cada réplica.
 func NewReplicator() *Replicator {
 	return &Replicator{dial: dialGRPC}
+}
+
+// SetClusterSecret fija el secreto que se envía al destino.
+func (r *Replicator) SetClusterSecret(secret string) {
+	r.clusterSecret = secret
 }
 
 // Block describe el bloque a replicar y de dónde leer su contenido.
@@ -78,6 +85,11 @@ func (r *Replicator) replicateOne(ctx context.Context, block Block, target strin
 	}
 
 	defer closeConn()
+
+	// Autenticación entre nodos.
+	if r.clusterSecret != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-cluster-secret", r.clusterSecret)
+	}
 
 	stream, err := client.StoreBlock(ctx)
 	if err != nil {

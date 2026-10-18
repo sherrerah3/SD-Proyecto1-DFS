@@ -7,12 +7,22 @@ import (
 	"google.golang.org/grpc/status"
 
 	datanodev1 "dfsha/internal/proto/datanode/v1"
+	"dfsha/internal/server/datanode/auth"
 )
 
 // GetBlock devuelve un bloque como stream: primero el header, luego los chunks.
 func (s *Server) GetBlock(req *datanodev1.GetBlockRequest, stream datanodev1.BlockService_GetBlockServer) error {
 	if req.GetBlockId() == "" {
 		return status.Error(codes.InvalidArgument, "block_id vacío")
+	}
+
+	// Exige capability op=get que incluya el bloque.
+	cap, err := s.capabilityFromContext(stream.Context(), auth.OpGet)
+	if err != nil {
+		return err
+	}
+	if err := s.authorizeBlock(cap, req.GetBlockId()); err != nil {
+		return err
 	}
 
 	rc, info, err := s.store.Read(req.GetBlockId())

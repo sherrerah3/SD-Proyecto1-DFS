@@ -41,8 +41,9 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	c := newTestCipher(t)
 
 	plaintext := []byte("contenido secreto del bloque")
+	aad := []byte("blk-1")
 
-	ciphertext, err := c.Encrypt(plaintext)
+	ciphertext, err := c.Encrypt(plaintext, aad)
 	if err != nil {
 		t.Fatalf("Encrypt() error inesperado: %v", err)
 	}
@@ -51,13 +52,18 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 		t.Fatalf("el ciphertext no debería igualar al plaintext")
 	}
 
-	got, err := c.Decrypt(ciphertext)
+	got, err := c.Decrypt(ciphertext, aad)
 	if err != nil {
 		t.Fatalf("Decrypt() error inesperado: %v", err)
 	}
 
 	if !bytes.Equal(got, plaintext) {
 		t.Fatalf("Decrypt() devolvió %q, se esperaba %q", got, plaintext)
+	}
+
+	// Otro AAD debe fallar
+	if _, err := c.Decrypt(ciphertext, []byte("blk-2")); err == nil {
+		t.Fatalf("Decrypt() debió fallar con un AAD distinto")
 	}
 }
 
@@ -66,12 +72,12 @@ func TestEncryptUsesFreshNonce(t *testing.T) {
 
 	plaintext := []byte("mismo contenido")
 
-	a, err := c.Encrypt(plaintext)
+	a, err := c.Encrypt(plaintext, nil)
 	if err != nil {
 		t.Fatalf("Encrypt() error inesperado: %v", err)
 	}
 
-	b, err := c.Encrypt(plaintext)
+	b, err := c.Encrypt(plaintext, nil)
 	if err != nil {
 		t.Fatalf("Encrypt() error inesperado: %v", err)
 	}
@@ -85,7 +91,7 @@ func TestEncryptUsesFreshNonce(t *testing.T) {
 func TestDecryptRejectsTampering(t *testing.T) {
 	c := newTestCipher(t)
 
-	ciphertext, err := c.Encrypt([]byte("datos íntegros"))
+	ciphertext, err := c.Encrypt([]byte("datos íntegros"), nil)
 	if err != nil {
 		t.Fatalf("Encrypt() error inesperado: %v", err)
 	}
@@ -93,7 +99,7 @@ func TestDecryptRejectsTampering(t *testing.T) {
 	// Se altera el último byte: GCM debe rechazar la autenticación.
 	ciphertext[len(ciphertext)-1] ^= 0xFF
 
-	if _, err := c.Decrypt(ciphertext); err == nil {
+	if _, err := c.Decrypt(ciphertext, nil); err == nil {
 		t.Fatalf("Decrypt() debió fallar ante un ciphertext alterado")
 	}
 }
@@ -101,7 +107,7 @@ func TestDecryptRejectsTampering(t *testing.T) {
 func TestDecryptRejectsShortInput(t *testing.T) {
 	c := newTestCipher(t)
 
-	if _, err := c.Decrypt([]byte{0x00, 0x01}); err == nil {
+	if _, err := c.Decrypt([]byte{0x00, 0x01}, nil); err == nil {
 		t.Fatalf("Decrypt() debió fallar ante un ciphertext demasiado corto")
 	}
 }

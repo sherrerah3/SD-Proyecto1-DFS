@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	datanodev1 "dfsha/internal/proto/datanode/v1"
+	"dfsha/internal/server/datanode/auth"
 	"dfsha/internal/server/datanode/blockstore"
 	"dfsha/internal/server/datanode/replication"
 )
@@ -30,6 +31,17 @@ func (s *Server) StoreBlock(stream datanodev1.BlockService_StoreBlockServer) err
 		return status.Error(codes.InvalidArgument, "block_id vacío")
 	}
 
+	// Réplica (secreto de clúster) o cliente (capability op=put).
+	if s.requireClusterSecret(stream.Context()) != nil {
+		cap, err := s.capabilityFromContext(stream.Context(), auth.OpPut)
+		if err != nil {
+			return err
+		}
+		if err := s.authorizeBlock(cap, header.GetBlockId()); err != nil {
+			return err
+		}
+	}
+
 	// Un pipe conecta la recepción del stream con la escritura al store:
 	// una goroutine vuelca los chunks al pipe mientras Write lee de él.
 	pr, pw := io.Pipe()
@@ -45,13 +57,22 @@ func (s *Server) StoreBlock(stream datanodev1.BlockService_StoreBlockServer) err
 	}
 
 	// Si el header declara un hash, se valida contra el calculado al escribir.
+	// Si no coincide, se borra el bloque corrupto.
 	if header.GetSha256() != "" && header.GetSha256() != info.SHA256 {
+		_, _ = s.store.Delete(info.BlockID)
 		return status.Errorf(
 			codes.DataLoss,
 			"hash no coincide: esperado %s, calculado %s",
 			header.GetSha256(),
 			info.SHA256,
 		)
+	}
+
+	// Reporte al Metanode para el quórum.
+	if s.reporter != nil {
+		if err := s.reporter.ReportBlock(stream.Context(), info.BlockID, s.selfID, info.SHA256); err != nil {
+			log.Printf("no se pudo reportar el bloque %s al metanode: %v", info.BlockID, err)
+		}
 	}
 
 	// El bloque ya quedó en este DataNode. Si hay réplicas por cubrir, se

@@ -37,7 +37,8 @@ func (s *EncryptedBlockStore) Write(blockID string, r io.Reader) (BlockInfo, err
 
 	sum := sha256.Sum256(plaintext)
 
-	ciphertext, err := s.cipher.Encrypt(plaintext)
+	// El block_id va como AAD para ligar el cifrado al bloque.
+	ciphertext, err := s.cipher.Encrypt(plaintext, []byte(blockID))
 	if err != nil {
 		return BlockInfo{}, fmt.Errorf("falló el cifrado del bloque %s: %w", blockID, err)
 	}
@@ -69,7 +70,7 @@ func (s *EncryptedBlockStore) Read(blockID string) (io.ReadCloser, BlockInfo, er
 		)
 	}
 
-	plaintext, err := s.cipher.Decrypt(ciphertext)
+	plaintext, err := s.cipher.Decrypt(ciphertext, []byte(blockID))
 	if err != nil {
 		return nil, BlockInfo{}, fmt.Errorf(
 			"falló el descifrado del bloque %s: %w",
