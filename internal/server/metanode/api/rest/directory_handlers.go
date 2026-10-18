@@ -53,3 +53,26 @@ func (srv *Server) handleDirectoryExists(w http.ResponseWriter, r *http.Request)
 
 	writeJSON(w, http.StatusOK, map[string]bool{"exists": true})
 }
+
+func (srv *Server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
+	dirPath, ok := cleanDirPath(r.URL.Query().Get("path"))
+	if !ok || dirPath == "/" {
+		writeError(w, http.StatusBadRequest, "invalid directory path")
+		return
+	}
+
+	err := srv.store.DeleteDirectory(usernameFrom(r), dirPath)
+	switch {
+	case errors.Is(err, store.ErrDirectoryNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	case errors.Is(err, store.ErrDirectoryNotEmpty):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		writeServiceError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

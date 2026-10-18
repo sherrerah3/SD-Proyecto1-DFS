@@ -31,7 +31,9 @@ type Store interface {
 	UpdateQuotaUsed(username string, deltaBytes int64) error
 
 	// Directorios
+	// Directorios
 	CreateDirectory(username, dirPath string) error
+	DeleteDirectory(username, dirPath string) error
 	DirectoryExists(username, dirPath string) bool
 	ListDirectories(username, dirPath string) ([]string, error)
 }

@@ -58,20 +58,33 @@ func (s *EncryptedBlockStore) Read(blockID string) (io.ReadCloser, BlockInfo, er
 	if err != nil {
 		return nil, BlockInfo{}, err
 	}
-
 	defer rc.Close()
 
 	ciphertext, err := io.ReadAll(rc)
 	if err != nil {
-		return nil, BlockInfo{}, fmt.Errorf("falló la lectura del bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"falló la lectura del bloque %s: %w",
+			blockID,
+			err,
+		)
 	}
 
 	plaintext, err := s.cipher.Decrypt(ciphertext)
 	if err != nil {
-		return nil, BlockInfo{}, fmt.Errorf("falló el descifrado del bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"falló el descifrado del bloque %s: %w",
+			blockID,
+			err,
+		)
 	}
 
-	info := BlockInfo{BlockID: blockID, SizeBytes: int64(len(plaintext))}
+	sum := sha256.Sum256(plaintext)
+
+	info := BlockInfo{
+		BlockID:   blockID,
+		SHA256:    hex.EncodeToString(sum[:]),
+		SizeBytes: int64(len(plaintext)),
+	}
 
 	return io.NopCloser(bytes.NewReader(plaintext)), info, nil
 }

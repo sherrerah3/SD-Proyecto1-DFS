@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"dfsha/internal/server/metanode/service"
+	"dfsha/internal/server/metanode/store"
 )
 
 type errorResponse struct {
@@ -60,7 +61,8 @@ func statusFor(err error) int {
 		return http.StatusNotFound // 404
 	case errors.Is(err, service.ErrUserAlreadyExists),
 		errors.Is(err, service.ErrAlreadyExists),
-		errors.Is(err, service.ErrAlreadyCompleted):
+		errors.Is(err, service.ErrAlreadyCompleted),
+		errors.Is(err, store.ErrDirectoryNotEmpty):
 		return http.StatusConflict // 409
 	case errors.Is(err, service.ErrNoDataNodes):
 		return http.StatusServiceUnavailable // 503

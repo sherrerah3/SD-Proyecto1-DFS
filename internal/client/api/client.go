@@ -1,4 +1,4 @@
-// Package api es el cliente HTTP (REST) del metanode.
+// Package api is the HTTP (REST) client for the metanode.
 package api
 
 import (
@@ -23,14 +23,14 @@ import (
 )
 
 const (
-	// DFSHA_METANODE_URL acepta una o varias URLs separadas por coma.
-	// Si el primer metanode no responde, se prueba el siguiente (alta disponibilidad).
+	// DFSHA_METANODE_URL accepts one or more comma-separated URLs.
+	// If the first metanode is unavailable, the next one is tried.
 	envMetanodeURL     = "DFSHA_METANODE_URL"
 	defaultMetanodeURL = "http://localhost:8080"
 	requestTimeout     = 10 * time.Second
 )
 
-// Error es una respuesta de error del metanode (HTTP 4xx o 5xx).
+// Error represents an error response from the metanode (HTTP 4xx or 5xx).
 type Error struct {
 	Status  int
 	Message string
@@ -40,7 +40,7 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("%s (HTTP %d)", e.Message, e.Status)
 }
 
-// Client habla con el metanode por REST.
+// Client communicates with the metanode through REST.
 type Client struct {
 	baseURLs []string
 	http     *http.Client
@@ -51,13 +51,13 @@ type credentials struct {
 	Password string `json:"password"`
 }
 
-// LoginResult es la respuesta de POST /auth/login.
+// LoginResult is the response from POST /auth/login.
 type LoginResult struct {
 	Token     string `json:"token"`
-	ExpiresIn int    `json:"expires_in"` // segundos
+	ExpiresIn int    `json:"expires_in"` // seconds
 }
 
-// New arma el cliente leyendo DFSHA_METANODE_URL (por defecto http://localhost:8080).
+// New creates the client using DFSHA_METANODE_URL.
 func New() *Client {
 	raw := os.Getenv(envMetanodeURL)
 	if strings.TrimSpace(raw) == "" {
@@ -83,7 +83,7 @@ func New() *Client {
 	}
 }
 
-// Register crea un usuario nuevo (POST /auth/register, responde 204).
+// Register creates a new user (POST /auth/register, responds with 204).
 func (c *Client) Register(username, password string) error {
 	return c.do(
 		http.MethodPost,
@@ -94,7 +94,7 @@ func (c *Client) Register(username, password string) error {
 	)
 }
 
-// Login inicia sesión (POST /auth/login) y devuelve el token JWT.
+// Login authenticates a user (POST /auth/login) and returns the JWT.
 func (c *Client) Login(username, password string) (LoginResult, error) {
 	var result LoginResult
 
@@ -109,9 +109,9 @@ func (c *Client) Login(username, password string) (LoginResult, error) {
 	return result, err
 }
 
-// do envía la petición al primer metanode que responda. Solo pasa al siguiente
-// si no hubo conexión; cualquier respuesta HTTP (incluso un error) se devuelve tal cual.
-func (c *Client) do(method, path, token string, body, out any) error {
+// do sends the request to the first metanode that responds.
+// It tries the next one only if the connection fails.
+func (c *Client) do(method, endpoint, token string, body, out any) error {
 	var payload []byte
 
 	if body != nil {
@@ -126,7 +126,7 @@ func (c *Client) do(method, path, token string, body, out any) error {
 	var lastErr error
 
 	for _, base := range c.baseURLs {
-		req, err := http.NewRequest(method, base+path, bytes.NewReader(payload))
+		req, err := http.NewRequest(method, base+endpoint, bytes.NewReader(payload))
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func (c *Client) do(method, path, token string, body, out any) error {
 		return decodeResponse(resp, out)
 	}
 
-	return fmt.Errorf("no se pudo contactar al metanode: %w", lastErr)
+	return fmt.Errorf("could not contact the metanode: %w", lastErr)
 }
 
 func decodeResponse(resp *http.Response, out any) error {
@@ -185,8 +185,8 @@ func decodeResponse(resp *http.Response, out any) error {
 }
 
 const (
-	putBlockSize = 1 << 20  // 1 MiB, igual que el metanode
-	putChunkSize = 64 << 10 // 64 KiB por mensaje gRPC
+	putBlockSize = 1 << 20  // 1 MiB, matching the metanode.
+	putChunkSize = 64 << 10 // 64 KiB per gRPC message.
 )
 
 type putInitRequest struct {
@@ -209,27 +209,39 @@ type putCompleteRequest struct {
 	SHA256 string `json:"sha256"`
 }
 
-// Put sube un archivo local al sistema de archivos DFSha.
+// Put uploads a local file to DFSha.
 func (c *Client) Put(localPath, remotePath, token string) error {
+	return c.put(localPath, remotePath, token, nil)
+}
+
+// PutVerbose uploads a file and reports which DataNodes stored each block.
+func (c *Client) PutVerbose(localPath, remotePath, token string, output io.Writer) error {
+	if output == nil {
+		output = io.Discard
+	}
+	return c.put(localPath, remotePath, token, output)
+}
+
+func (c *Client) put(localPath, remotePath, token string, output io.Writer) error {
 	info, err := os.Stat(localPath)
 	if err != nil {
-		return fmt.Errorf("no se puede acceder al archivo local: %w", err)
+		return fmt.Errorf("cannot access local file: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return errors.New("la ruta local no corresponde a un archivo regular")
+		return errors.New("local path does not refer to a regular file")
 	}
 	if info.Size() <= 0 {
-		return errors.New("no se pueden subir archivos vacíos")
+		return errors.New("cannot upload empty files")
 	}
 
 	remotePath = path.Clean(remotePath)
 	if !strings.HasPrefix(remotePath, "/") || remotePath == "/" {
-		return errors.New("la ruta remota debe ser absoluta y apuntar a un archivo")
+		return errors.New("remote path must be absolute and point to a file")
 	}
 
 	file, err := os.Open(localPath)
 	if err != nil {
-		return fmt.Errorf("no se pudo abrir el archivo: %w", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -244,13 +256,13 @@ func (c *Client) Put(localPath, remotePath, token string) error {
 		},
 		&init,
 	); err != nil {
-		return fmt.Errorf("el metanode rechazó el inicio de la subida: %w", err)
+		return fmt.Errorf("metanode rejected the upload initialization: %w", err)
 	}
 
 	expectedBlocks := (info.Size() + putBlockSize - 1) / putBlockSize
 	if int64(len(init.Blocks)) != expectedBlocks {
 		return fmt.Errorf(
-			"el metanode asignó %d bloques, pero se esperaban %d",
+			"metanode assigned %d blocks, but expected %d",
 			len(init.Blocks),
 			expectedBlocks,
 		)
@@ -261,7 +273,7 @@ func (c *Client) Put(localPath, remotePath, token string) error {
 
 	for i, block := range init.Blocks {
 		if len(block.DataNodes) == 0 {
-			return fmt.Errorf("el bloque %s no tiene datanodes asignados", block.BlockID)
+			return fmt.Errorf("block %s has no assigned DataNodes", block.BlockID)
 		}
 
 		blockSize := int64(putBlockSize)
@@ -271,27 +283,72 @@ func (c *Client) Put(localPath, remotePath, token string) error {
 
 		data := make([]byte, int(blockSize))
 		if _, err := io.ReadFull(file, data); err != nil {
-			return fmt.Errorf("no se pudo leer el bloque %d: %w", i, err)
+			return fmt.Errorf("failed to read block %d: %w", i+1, err)
 		}
 
 		_, _ = fileHash.Write(data)
 
 		blockHash := sha256.Sum256(data)
 
-		if err := uploadBlock(
+		storedOn, uploadErr := uploadBlock(
 			block.BlockID,
 			block.DataNodes,
 			data,
 			hex.EncodeToString(blockHash[:]),
-		); err != nil {
-			return fmt.Errorf("falló la subida del bloque %d (%s): %w", i, block.BlockID, err)
+		)
+
+		// The DataNode protocol reports its own successful storage as "self".
+		// Translate that marker to the primary DataNode address assigned by the metanode.
+		for j, address := range storedOn {
+			if address == "self" && len(block.DataNodes) > 0 {
+				storedOn[j] = block.DataNodes[0]
+			}
+		}
+
+		if output != nil {
+			fmt.Fprintf(output, "[put] block %d/%d ID=%s size=%d bytes\n",
+				i+1, len(init.Blocks), block.BlockID, len(data))
+			confirmed := make(map[string]bool, len(storedOn))
+			for _, address := range storedOn {
+				confirmed[address] = true
+			}
+			for _, address := range block.DataNodes {
+				switch {
+				case confirmed[address]:
+					fmt.Fprintf(output, "  [OK] stored on DataNode %s\n", address)
+				case uploadErr != nil && address == block.DataNodes[0]:
+					fmt.Fprintf(output, "  [FAIL] primary DataNode %s: %v\n", address, uploadErr)
+				default:
+					fmt.Fprintf(output, "  [UNCONFIRMED] DataNode %s is missing from the server confirmation\n", address)
+				}
+			}
+		}
+
+		if uploadErr != nil {
+			return fmt.Errorf("failed to upload block %d (%s): %w", i+1, block.BlockID, uploadErr)
+		}
+		for _, address := range block.DataNodes {
+			found := false
+			for _, stored := range storedOn {
+				if stored == address {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("block %s was accepted, but DataNode %s did not confirm storage", block.BlockID, address)
+			}
 		}
 
 		remaining -= blockSize
 	}
 
 	if remaining != 0 {
-		return fmt.Errorf("quedaron %d bytes sin procesar", remaining)
+		return fmt.Errorf("%d bytes remain unprocessed", remaining)
+	}
+
+	if output != nil {
+		fmt.Fprintln(output, "[put] all blocks confirmed; finalizing metadata on the metanode")
 	}
 
 	if err := c.do(
@@ -304,19 +361,26 @@ func (c *Client) Put(localPath, remotePath, token string) error {
 		},
 		nil,
 	); err != nil {
-		return fmt.Errorf("los bloques se enviaron, pero no se pudo completar la subida: %w", err)
+		if output != nil {
+			fmt.Fprintf(output, "[FAIL] metanode could not complete the upload: %v\n", err)
+		}
+		return fmt.Errorf("blocks were sent, but the upload could not be completed: %w", err)
 	}
 
+	if output != nil {
+		fmt.Fprintf(output, "[OK] file committed to DFSha: %s\n", remotePath)
+	}
 	return nil
 }
 
-// uploadBlock envía un bloque al primer DataNode y le indica cuáles son sus réplicas.
+// uploadBlock sends a block to the first DataNode and returns the DataNodes
+// that the server confirms stored the block.
 func uploadBlock(
 	blockID string,
 	dataNodes []string,
 	data []byte,
 	blockHash string,
-) error {
+) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -325,7 +389,7 @@ func uploadBlock(
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		return fmt.Errorf("no se pudo conectar al datanode %s: %w", dataNodes[0], err)
+		return nil, fmt.Errorf("could not connect to DataNode %s: %w", dataNodes[0], err)
 	}
 	defer conn.Close()
 
@@ -333,7 +397,7 @@ func uploadBlock(
 
 	stream, err := client.StoreBlock(ctx)
 	if err != nil {
-		return fmt.Errorf("no se pudo iniciar el envío gRPC: %w", err)
+		return nil, fmt.Errorf("could not start gRPC upload: %w", err)
 	}
 
 	header := &datanodev1.StoreBlockRequest{
@@ -348,7 +412,7 @@ func uploadBlock(
 	}
 
 	if err := stream.Send(header); err != nil {
-		return fmt.Errorf("no se pudo enviar el encabezado: %w", err)
+		return nil, fmt.Errorf("could not send block header: %w", err)
 	}
 
 	for offset := 0; offset < len(data); offset += putChunkSize {
@@ -364,27 +428,27 @@ func uploadBlock(
 		}
 
 		if err := stream.Send(chunk); err != nil {
-			return fmt.Errorf("no se pudo enviar un fragmento: %w", err)
+			return nil, fmt.Errorf("could not send data chunk: %w", err)
 		}
 	}
 
 	response, err := stream.CloseAndRecv()
 	if err != nil {
-		return fmt.Errorf("el datanode no confirmó el bloque: %w", err)
+		return nil, fmt.Errorf("DataNode did not confirm the block: %w", err)
 	}
 
 	if response.GetBlockId() != blockID {
-		return fmt.Errorf("el datanode confirmó un bloque diferente: %s", response.GetBlockId())
+		return nil, fmt.Errorf("DataNode confirmed a different block: %s", response.GetBlockId())
 	}
 
 	if response.GetSha256() != blockHash {
-		return errors.New("el hash del bloque no coincide con el confirmado por el datanode")
+		return nil, errors.New("block hash does not match the hash confirmed by the DataNode")
 	}
 
-	return nil
+	return response.GetStoredOn(), nil
 }
 
-// FileEntry representa un archivo devuelto por el metanode.
+// FileEntry represents a file returned by the metanode.
 type FileEntry struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
@@ -393,7 +457,7 @@ type FileEntry struct {
 	Kind      string `json:"kind"`
 }
 
-// ListFiles obtiene los archivos del directorio indicado.
+// ListFiles retrieves the files in the specified directory.
 func (c *Client) ListFiles(dir, token string) ([]FileEntry, error) {
 	var entries []FileEntry
 
@@ -417,7 +481,7 @@ type SessionResult struct {
 	Username string `json:"username"`
 }
 
-// ValidateSession comprueba que el token siga siendo válido.
+// ValidateSession checks whether the token is still valid.
 func (c *Client) ValidateSession(token string) error {
 	return c.do(
 		http.MethodGet,
@@ -428,7 +492,7 @@ func (c *Client) ValidateSession(token string) error {
 	)
 }
 
-// CreateDirectory crea un directorio remoto.
+// CreateDirectory creates a remote directory.
 func (c *Client) CreateDirectory(dirPath, token string) error {
 	return c.do(
 		http.MethodPost,
@@ -441,7 +505,7 @@ func (c *Client) CreateDirectory(dirPath, token string) error {
 	)
 }
 
-// DirectoryExists comprueba si existe un directorio remoto.
+// DirectoryExists checks whether a remote directory exists.
 func (c *Client) DirectoryExists(dirPath, token string) error {
 	endpoint := "/directories/exists?path=" + url.QueryEscape(dirPath)
 
@@ -454,4 +518,78 @@ func (c *Client) DirectoryExists(dirPath, token string) error {
 			Exists bool `json:"exists"`
 		}{},
 	)
+}
+
+func (c *Client) RemoveFile(remotePath, token string) error {
+	remotePath = path.Clean(remotePath)
+	if !strings.HasPrefix(remotePath, "/") || remotePath == "/" {
+		return errors.New("remote path must identify a file")
+	}
+
+	segments := strings.Split(strings.TrimPrefix(remotePath, "/"), "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	endpoint := "/files/" + strings.Join(segments, "/")
+
+	var metadata getFileResponse
+	if err := c.do(http.MethodGet, endpoint, token, nil, &metadata); err != nil {
+		return fmt.Errorf("cannot locate remote file: %w", err)
+	}
+
+	// Remove block replicas from the DataNodes.
+	for _, block := range metadata.Blocks {
+		for _, address := range block.DataNodes {
+			if err := deleteBlockFromDataNode(address, block.BlockID); err != nil {
+				return fmt.Errorf(
+					"cannot remove block %s from %s: %w",
+					block.BlockID, address, err,
+				)
+			}
+		}
+	}
+
+	if err := c.do(http.MethodDelete, endpoint, token, nil, nil); err != nil {
+		return fmt.Errorf("cannot remove file metadata: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) RemoveDirectory(remotePath, token string) error {
+	remotePath = path.Clean(remotePath)
+	if !strings.HasPrefix(remotePath, "/") || remotePath == "/" {
+		return errors.New("remote path must identify a directory other than root")
+	}
+
+	endpoint := "/directories?path=" + url.QueryEscape(remotePath)
+	return c.do(http.MethodDelete, endpoint, token, nil, nil)
+}
+
+func deleteBlockFromDataNode(address, blockID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := grpc.NewClient(
+		address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := datanodev1.NewBlockServiceClient(conn)
+	response, err := client.DeleteBlock(ctx, &datanodev1.DeleteBlockRequest{
+		BlockId: blockID,
+	})
+	if err != nil {
+		return err
+	}
+
+	if response.GetBlockId() != blockID {
+		return errors.New("DataNode returned a different block ID")
+	}
+
+	return nil
 }

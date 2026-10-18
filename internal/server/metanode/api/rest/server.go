@@ -30,6 +30,7 @@ func (srv *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /files/{path...}", RequireAuth(srv.handleDeleteFile))
 	mux.HandleFunc("POST /directories", RequireAuth(srv.handleCreateDirectory))
 	mux.HandleFunc("GET /directories/exists", RequireAuth(srv.handleDirectoryExists))
+	mux.HandleFunc("DELETE /directories", RequireAuth(srv.handleDeleteDirectory))
 
 	// Endpoint para checkear si el token actual del usuario aún sirve
 	mux.HandleFunc("GET /auth/session", RequireAuth(srv.handleValidateSession))

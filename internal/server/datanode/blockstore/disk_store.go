@@ -1,6 +1,7 @@
 package blockstore
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -91,7 +92,7 @@ func (s *DiskStore) Write(blockID string, r io.Reader) (BlockInfo, error) {
 }
 
 func (s *DiskStore) Read(blockID string) (io.ReadCloser, BlockInfo, error) {
-	path, err := s.blockPath(blockID)
+	filePath, err := s.blockPath(blockID)
 	if err != nil {
 		return nil, BlockInfo{}, err
 	}
@@ -99,21 +100,37 @@ func (s *DiskStore) Read(blockID string) (io.ReadCloser, BlockInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	info, err := os.Stat(path)
+	f, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, BlockInfo{}, fmt.Errorf("bloque no encontrado: %s", blockID)
 		}
-
-		return nil, BlockInfo{}, fmt.Errorf("no se pudo abrir el bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"no se pudo abrir el bloque %s: %w",
+			blockID,
+			err,
+		)
 	}
+	defer f.Close()
 
-	f, err := os.Open(path)
+	data, err := io.ReadAll(f)
 	if err != nil {
-		return nil, BlockInfo{}, fmt.Errorf("no se pudo abrir el bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"no se pudo leer el bloque %s: %w",
+			blockID,
+			err,
+		)
 	}
 
-	return f, BlockInfo{BlockID: blockID, SizeBytes: info.Size()}, nil
+	sum := sha256.Sum256(data)
+
+	info := BlockInfo{
+		BlockID:   blockID,
+		SHA256:    hex.EncodeToString(sum[:]),
+		SizeBytes: int64(len(data)),
+	}
+
+	return io.NopCloser(bytes.NewReader(data)), info, nil
 }
 
 func (s *DiskStore) Delete(blockID string) (bool, error) {

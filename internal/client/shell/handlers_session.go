@@ -139,9 +139,6 @@ func rejectIfLoggedIn(s *shell) bool {
 			s.session.Username,
 		),
 	)
-
-	fmt.Println()
-
 	return true
 }
 

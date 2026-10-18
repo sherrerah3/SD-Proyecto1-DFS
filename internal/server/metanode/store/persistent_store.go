@@ -128,3 +128,10 @@ func (p *PersistentStore) CreateDirectory(username, dirPath string) error {
 	}
 	return p.persist()
 }
+
+func (p *PersistentStore) DeleteDirectory(username, dirPath string) error {
+	if err := p.MemoryStore.DeleteDirectory(username, dirPath); err != nil {
+		return err
+	}
+	return p.persist()
+}

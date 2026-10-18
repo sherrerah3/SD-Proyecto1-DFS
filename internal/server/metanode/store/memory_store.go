@@ -371,3 +371,42 @@ func (s *MemoryStore) ListDirectories(
 
 	return result, nil
 }
+
+func (s *MemoryStore) DeleteDirectory(username, dirPath string) error {
+	dirPath = path.Clean(dirPath)
+
+	if dirPath == "/" {
+		return ErrDirectoryNotEmpty
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := directoryKey(username, dirPath)
+	if !s.directories[key] {
+		return ErrDirectoryNotFound
+	}
+
+	// A directory cannot be removed while it contains files.
+	prefix := dirPath + "/"
+	for filePath, file := range s.files {
+		if file.Owner == username && strings.HasPrefix(filePath, prefix) {
+			return ErrDirectoryNotEmpty
+		}
+	}
+
+	// A directory cannot be removed while it contains subdirectories.
+	for otherKey := range s.directories {
+		if !strings.HasPrefix(otherKey, username+"\x00") || otherKey == key {
+			continue
+		}
+
+		otherPath := strings.TrimPrefix(otherKey, username+"\x00")
+		if strings.HasPrefix(otherPath, prefix) {
+			return ErrDirectoryNotEmpty
+		}
+	}
+
+	delete(s.directories, key)
+	return nil
+}
