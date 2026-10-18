@@ -191,8 +191,16 @@ const (
 )
 
 type putInitRequest struct {
-	Path      string `json:"path"`
-	SizeBytes int64  `json:"size_bytes"`
+	Path       string `json:"path"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Replace    bool   `json:"replace,omitempty"`
+	BaseSHA256 string `json:"base_sha256,omitempty"`
+}
+
+// putOptions selects between creating a file and replacing an existing one.
+type putOptions struct {
+	replace bool
+	baseSHA string // version that was downloaded, required to replace
 }
 
 type putBlock struct {
@@ -212,7 +220,7 @@ type putCompleteRequest struct {
 
 // Put uploads a local file to DFSha.
 func (c *Client) Put(localPath, remotePath, token string) error {
-	return c.put(localPath, remotePath, token, nil)
+	return c.put(localPath, remotePath, token, nil, putOptions{})
 }
 
 // PutVerbose uploads a file and reports which DataNodes stored each block.
@@ -220,10 +228,15 @@ func (c *Client) PutVerbose(localPath, remotePath, token string, output io.Write
 	if output == nil {
 		output = io.Discard
 	}
-	return c.put(localPath, remotePath, token, output)
+	return c.put(localPath, remotePath, token, output, putOptions{})
 }
 
-func (c *Client) put(localPath, remotePath, token string, output io.Writer) error {
+// Replace uploads a new version; the metanode answers 409 if baseSHA256 is outdated.
+func (c *Client) Replace(localPath, remotePath, baseSHA256, token string) error {
+	return c.put(localPath, remotePath, token, nil, putOptions{replace: true, baseSHA: baseSHA256})
+}
+
+func (c *Client) put(localPath, remotePath, token string, output io.Writer, opts putOptions) error {
 	info, err := os.Stat(localPath)
 	if err != nil {
 		return fmt.Errorf("cannot access local file: %w", err)
@@ -252,8 +265,10 @@ func (c *Client) put(localPath, remotePath, token string, output io.Writer) erro
 		"/files/put-init",
 		token,
 		putInitRequest{
-			Path:      remotePath,
-			SizeBytes: info.Size(),
+			Path:       remotePath,
+			SizeBytes:  info.Size(),
+			Replace:    opts.replace,
+			BaseSHA256: opts.baseSHA,
 		},
 		&init,
 	); err != nil {

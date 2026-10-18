@@ -25,12 +25,36 @@ import (
 type getFileResponse struct {
 	Blocks          []putBlock `json:"blocks"`
 	SHA256          string     `json:"sha256"`
+	SizeBytes       int64      `json:"size_bytes"`
 	CapabilityToken string     `json:"capability_token"`
+}
+
+// FileInfo describes the remote version that was downloaded.
+type FileInfo struct {
+	SizeBytes int64
+	SHA256    string
+}
+
+// TooLargeError is returned by Download when the file exceeds the size limit.
+type TooLargeError struct {
+	Size int64
+	Max  int64
+}
+
+func (e *TooLargeError) Error() string {
+	return fmt.Sprintf("file is too large (%d bytes, limit %d)", e.Size, e.Max)
+}
+
+// getOptions tunes a download; the zero value is a plain silent Get.
+type getOptions struct {
+	output  io.Writer // progress messages (nil = silent)
+	maxSize int64     // reject larger files (0 = no limit)
+	info    *FileInfo // receives the version that was fetched
 }
 
 // Get downloads a DFSha file and saves it to a local path.
 func (c *Client) Get(remotePath, localPath, token string) error {
-	return c.get(remotePath, localPath, token, nil)
+	return c.get(remotePath, localPath, token, getOptions{})
 }
 
 // GetVerbose descarga un archivo e informa los bloques, DataNodes probados y fallos.
@@ -38,10 +62,18 @@ func (c *Client) GetVerbose(remotePath, localPath, token string, output io.Write
 	if output == nil {
 		output = io.Discard
 	}
-	return c.get(remotePath, localPath, token, output)
+	return c.get(remotePath, localPath, token, getOptions{output: output})
 }
 
-func (c *Client) get(remotePath, localPath, token string, output io.Writer) error {
+// Download is Get with a size limit (0 = none); it returns the version it fetched.
+func (c *Client) Download(remotePath, localPath, token string, maxSize int64) (FileInfo, error) {
+	var info FileInfo
+	err := c.get(remotePath, localPath, token, getOptions{maxSize: maxSize, info: &info})
+	return info, err
+}
+
+func (c *Client) get(remotePath, localPath, token string, opts getOptions) error {
+	output := opts.output
 	remotePath = path.Clean(remotePath)
 
 	if !strings.HasPrefix(remotePath, "/") || remotePath == "/" {
@@ -72,6 +104,13 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 
 	if metadata.SHA256 == "" {
 		return errors.New("metanode returned no file checksum")
+	}
+
+	if opts.maxSize > 0 && metadata.SizeBytes > opts.maxSize {
+		return &TooLargeError{Size: metadata.SizeBytes, Max: opts.maxSize}
+	}
+	if opts.info != nil {
+		*opts.info = FileInfo{SizeBytes: metadata.SizeBytes, SHA256: metadata.SHA256}
 	}
 
 	// Create the temporary file in the destination directory so that

@@ -30,6 +30,9 @@ const (
 	commandRm       = "rm"
 	commandPut      = "put"
 	commandGet      = "get"
+	commandCat      = "cat"
+	commandEdit     = "edit"
+	commandNano     = "nano"
 	commandOpen     = "open"
 	commandClose    = "close"
 	commandRead     = "read"
@@ -81,6 +84,9 @@ const (
 	descriptionRm       = "Remove files and directories (-r, -f, -rf)"
 	descriptionPut      = "Upload a file (-v, --verbose shows block storage)"
 	descriptionGet      = "Download a file (-v, --verbose shows block recovery)"
+	descriptionCat      = "Print a file's content"
+	descriptionEdit     = "Edit a file with $EDITOR (nano by default)"
+	descriptionNano     = "Edit a file with nano"
 	descriptionOpen     = "Open a file"
 	descriptionClose    = "Close a file"
 	descriptionRead     = "Read from a file"
@@ -166,6 +172,24 @@ var defaultCommands = []command{
 		description:  descriptionGet,
 		requiresAuth: true,
 		execute:      handleGet,
+	},
+	{
+		name:         commandCat,
+		description:  descriptionCat,
+		requiresAuth: true,
+		execute:      handleCat,
+	},
+	{
+		name:         commandEdit,
+		description:  descriptionEdit,
+		requiresAuth: true,
+		execute:      handleEdit,
+	},
+	{
+		name:         commandNano,
+		description:  descriptionNano,
+		requiresAuth: true,
+		execute:      handleNano,
 	},
 	{
 		name:         commandOpen,
