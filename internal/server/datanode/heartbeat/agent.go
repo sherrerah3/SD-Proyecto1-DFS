@@ -2,6 +2,7 @@ package heartbeat
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -18,6 +19,7 @@ type Agent struct {
 	store      blockstore.BlockStore
 	reporter   Reporter
 	freeBytes  func() int64
+	deleter    BlockDeleter // aplica las órdenes de borrado del Metanode
 	interval   time.Duration
 }
 
@@ -40,6 +42,11 @@ func NewAgent(
 	}
 }
 
+// SetDeleter conecta el store local para aplicar las órdenes de borrado.
+func (a *Agent) SetDeleter(d BlockDeleter) {
+	a.deleter = d
+}
+
 // SetInterval ajusta el periodo entre latidos.
 func (a *Agent) SetInterval(d time.Duration) {
 	a.interval = d
@@ -47,7 +54,7 @@ func (a *Agent) SetInterval(d time.Duration) {
 
 // Run registra el DataNode y envía latidos hasta que ctx se cancele.
 func (a *Agent) Run(ctx context.Context) error {
-	if err := a.reporter.Register(ctx, a.snapshot()); err != nil {
+	if err := a.registerWithRetry(ctx); err != nil {
 		return err
 	}
 
@@ -60,10 +67,57 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
-			if err := a.reporter.Beat(ctx, a.snapshot()); err != nil {
+			toDelete, err := a.reporter.Beat(ctx, a.snapshot())
+			if errors.Is(err, ErrNotRegistered) {
+				// El Metanode no nos conoce (p. ej. tras failover).
+				log.Printf("datanode %s no registrado; re-registrando", a.datanodeID)
+				if rerr := a.reporter.Register(ctx, a.snapshot()); rerr != nil {
+					log.Printf("re-registro del datanode %s falló: %v", a.datanodeID, rerr)
+				}
+				continue
+			}
+			if err != nil {
 				// Un latido fallido no detiene el agente: se reintenta al siguiente.
 				log.Printf("heartbeat del datanode %s falló: %v", a.datanodeID, err)
+				continue
 			}
+			a.applyDeletions(toDelete)
+		}
+	}
+}
+
+// registerWithRetry reintenta el registro con espera creciente.
+func (a *Agent) registerWithRetry(ctx context.Context) error {
+	backoff := 1 * time.Second
+	const maxBackoff = 15 * time.Second
+	for {
+		if err := a.reporter.Register(ctx, a.snapshot()); err == nil {
+			return nil
+		} else {
+			log.Printf("registro del datanode %s falló: %v (reintentando en %s)", a.datanodeID, err, backoff)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
+}
+
+// applyDeletions borra localmente los bloques que ordenó el Metanode.
+func (a *Agent) applyDeletions(blockIDs []string) {
+	if a.deleter == nil {
+		return
+	}
+	for _, id := range blockIDs {
+		if _, err := a.deleter.Delete(id); err != nil {
+			log.Printf("datanode %s no pudo borrar el bloque %s: %v", a.datanodeID, id, err)
 		}
 	}
 }
@@ -86,12 +140,7 @@ func (a *Agent) currentFreeBytes() int64 {
 	return a.freeBytes()
 }
 
+// currentBlockCount no recorre el disco; el Metanode no usa el dato.
 func (a *Agent) currentBlockCount() int {
-	reports, err := a.store.List()
-	if err != nil {
-		log.Printf("no se pudo contar los bloques del datanode %s: %v", a.datanodeID, err)
-		return 0
-	}
-
-	return len(reports)
+	return 0
 }

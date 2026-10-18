@@ -28,11 +28,11 @@ func (r *LogReporter) Register(ctx context.Context, report Report) error {
 	return nil
 }
 
-func (r *LogReporter) Beat(ctx context.Context, report Report) error {
+func (r *LogReporter) Beat(ctx context.Context, report Report) ([]string, error) {
 	log.Printf(
 		"heartbeat (log): latido datanode=%s free=%d bloques=%d",
 		report.DataNodeID, report.FreeBytes, report.BlockCount,
 	)
 
-	return nil
+	return nil, nil
 }
