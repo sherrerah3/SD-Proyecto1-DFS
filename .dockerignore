@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Data and logs
+data/
+logs/
+
+# Binaries
+*.exe
+*.out
+*.test
+dfsha
+
+# Docs and editors
+*.md
+.vscode/
+.idea/
+
+# Environment variables
+.env
+.env.*
