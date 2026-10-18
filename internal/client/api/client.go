@@ -20,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -295,6 +296,7 @@ func (c *Client) put(localPath, remotePath, token string, output io.Writer) erro
 			block.DataNodes,
 			data,
 			hex.EncodeToString(blockHash[:]),
+			init.CapabilityToken,
 		)
 
 		// The DataNode protocol reports its own successful storage as "self".
@@ -380,9 +382,11 @@ func uploadBlock(
 	dataNodes []string,
 	data []byte,
 	blockHash string,
+	capability string,
 ) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	ctx = withCapability(ctx, capability)
 
 	conn, err := grpc.NewClient(
 		dataNodes[0],
@@ -532,23 +536,7 @@ func (c *Client) RemoveFile(remotePath, token string) error {
 	}
 	endpoint := "/files/" + strings.Join(segments, "/")
 
-	var metadata getFileResponse
-	if err := c.do(http.MethodGet, endpoint, token, nil, &metadata); err != nil {
-		return fmt.Errorf("cannot locate remote file: %w", err)
-	}
-
-	// Remove block replicas from the DataNodes.
-	for _, block := range metadata.Blocks {
-		for _, address := range block.DataNodes {
-			if err := deleteBlockFromDataNode(address, block.BlockID); err != nil {
-				return fmt.Errorf(
-					"cannot remove block %s from %s: %w",
-					block.BlockID, address, err,
-				)
-			}
-		}
-	}
-
+	// The metanode schedules the block deletion on the DataNodes.
 	if err := c.do(http.MethodDelete, endpoint, token, nil, nil); err != nil {
 		return fmt.Errorf("cannot remove file metadata: %w", err)
 	}
@@ -566,30 +554,7 @@ func (c *Client) RemoveDirectory(remotePath, token string) error {
 	return c.do(http.MethodDelete, endpoint, token, nil, nil)
 }
 
-func deleteBlockFromDataNode(address, blockID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := grpc.NewClient(
-		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	client := datanodev1.NewBlockServiceClient(conn)
-	response, err := client.DeleteBlock(ctx, &datanodev1.DeleteBlockRequest{
-		BlockId: blockID,
-	})
-	if err != nil {
-		return err
-	}
-
-	if response.GetBlockId() != blockID {
-		return errors.New("DataNode returned a different block ID")
-	}
-
-	return nil
+// withCapability adds the capability token to the outgoing gRPC metadata.
+func withCapability(ctx context.Context, token string) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 }

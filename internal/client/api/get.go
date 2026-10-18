@@ -107,7 +107,7 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 			return fmt.Errorf("block %s has no available DataNodes", block.BlockID)
 		}
 
-		data, source, err := downloadBlock(block.BlockID, block.DataNodes, output, i+1, len(metadata.Blocks))
+		data, source, err := downloadBlock(block.BlockID, block.DataNodes, metadata.CapabilityToken, output, i+1, len(metadata.Blocks))
 		if err != nil {
 			if output != nil {
 				fmt.Fprintf(output, "[FALLO] no se pudo recuperar el bloque %d/%d ID=%s: %v\n",
@@ -168,11 +168,11 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 }
 
 // downloadBlock prueba cada réplica e informa los fallos y el origen exitoso.
-func downloadBlock(blockID string, dataNodes []string, output io.Writer, blockNum, total int) ([]byte, string, error) {
+func downloadBlock(blockID string, dataNodes []string, capability string, output io.Writer, blockNum, total int) ([]byte, string, error) {
 	var lastErr error
 
 	for attempt, address := range dataNodes {
-		data, err := readBlockFromDataNode(address, blockID)
+		data, err := readBlockFromDataNode(address, blockID, capability)
 		if err == nil {
 			if output != nil && attempt > 0 {
 				fmt.Fprintf(output, "  [RECUPERADO] bloque %s: réplica %s funcionó tras %d intento(s) fallido(s)\n",
@@ -194,12 +194,13 @@ func downloadBlock(blockID string, dataNodes []string, output io.Writer, blockNu
 	return nil, "", fmt.Errorf("todas las réplicas fallaron: %w", lastErr)
 }
 
-func readBlockFromDataNode(address, blockID string) ([]byte, error) {
+func readBlockFromDataNode(address, blockID, capability string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
 		2*time.Minute,
 	)
 	defer cancel()
+	ctx = withCapability(ctx, capability)
 
 	conn, err := grpc.NewClient(
 		address,
