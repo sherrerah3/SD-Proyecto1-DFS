@@ -1,6 +1,8 @@
 package service
 
 import (
+	"path"
+	"strings"
 	"testing"
 
 	"dfsha/internal/server/metanode/store"
@@ -8,6 +10,23 @@ import (
 
 // hashValido es un SHA256 en hex (64 caracteres) para los tests de CompletePut
 const hashValido = "0000000000000000000000000000000000000000000000000000000000000000"
+
+// alcanzarQuorum reporta cada bloque desde dos DataNodes con el mismo hash
+func alcanzarQuorum(t *testing.T, s store.Store, user, filePath string) {
+	t.Helper()
+	f, err := s.GetFile(user, filePath)
+	if err != nil {
+		t.Fatalf("preparación falló (GetFile): %v", err)
+	}
+	for _, blockID := range f.BlockIDs {
+		if err := s.ReportBlock(blockID, "dn-a", hashValido); err != nil {
+			t.Fatalf("preparación falló (ReportBlock a): %v", err)
+		}
+		if err := s.ReportBlock(blockID, "dn-b", hashValido); err != nil {
+			t.Fatalf("preparación falló (ReportBlock b): %v", err)
+		}
+	}
+}
 
 // nuevoStoreConNodos crea un store con un usuario y la cantidad pedida de datanodes vivos
 func nuevoStoreConNodos(t *testing.T, numNodos int) store.Store {
@@ -28,6 +47,8 @@ func nuevoStoreConNodos(t *testing.T, numNodos int) store.Store {
 
 func TestInitPutValido(t *testing.T) {
 	s := nuevoStoreConNodos(t, 3)
+
+	crearDirs(t, s, "ana", "/home/ana/a.txt")
 
 	// 3MB con bloques de 1MB => 3 bloques
 	placements, err := InitPut(s, "ana", "/home/ana/a.txt", 3*BlockSizeBytes)
@@ -104,14 +125,27 @@ func TestCompletePutGuardaHash(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", 2*BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
+	alcanzarQuorum(t, s, "ana", "/a.txt")
 
 	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
 		t.Fatalf("CompletePut falló: %v", err)
 	}
 
-	f, _ := s.GetFile("/a.txt")
+	f, _ := s.GetFile("ana", "/a.txt")
 	if f.SHA256 != hashValido {
 		t.Fatalf("hash = %q, se esperaba %q", f.SHA256, hashValido)
+	}
+}
+
+func TestCompletePutSinQuorum(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	// Sin reportes no hay quórum
+	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != ErrQuorumNotMet {
+		t.Fatalf("error = %v, se esperaba ErrQuorumNotMet", err)
 	}
 }
 
@@ -131,6 +165,7 @@ func TestCompletePutDosVeces(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
+	alcanzarQuorum(t, s, "ana", "/a.txt")
 	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
 		t.Fatalf("primer CompletePut falló: %v", err)
 	}
@@ -145,9 +180,7 @@ func TestResolveGetValido(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", 2*BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
-	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
-		t.Fatalf("preparación falló: %v", err)
-	}
+	subirListo(t, s, "ana", "/a.txt")
 
 	blocks, hash, err := ResolveGet(s, "ana", "/a.txt")
 	if err != nil {
@@ -158,6 +191,33 @@ func TestResolveGetValido(t *testing.T) {
 	}
 	if hash != hashValido {
 		t.Fatalf("hash = %q, se esperaba %q", hash, hashValido)
+	}
+}
+
+func TestResolveGetReplicasVivasPrimero(t *testing.T) {
+	s := nuevoStoreConNodos(t, 3)
+	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	subirListo(t, s, "ana", "/a.txt")
+
+	// Se mata un nodo: su dirección debe quedar al final de la lista.
+	nodes, _ := s.ListDataNodes()
+	dead := nodes[0]
+	if err := s.SetDataNodeAlive(dead.ID, false); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	blocks, _, err := ResolveGet(s, "ana", "/a.txt")
+	if err != nil {
+		t.Fatalf("ResolveGet falló: %v", err)
+	}
+	// El nodo muerto, si aparece, debe ser el último.
+	addrs := blocks[0].DataNodes
+	for i, a := range addrs {
+		if a == dead.Address && i != len(addrs)-1 {
+			t.Fatalf("la réplica muerta %s debía ir al final, está en %d", a, i)
+		}
 	}
 }
 
@@ -178,9 +238,7 @@ func TestResolveGetAjeno(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
-	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
-		t.Fatalf("preparación falló: %v", err)
-	}
+	subirListo(t, s, "ana", "/a.txt")
 	if err := s.CreateUser(store.UserInfo{Username: "bob"}); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
@@ -191,12 +249,45 @@ func TestResolveGetAjeno(t *testing.T) {
 	}
 }
 
-// subir hace InitPut + CompletePut para dejar el archivo listo en el store
+// crearDirs crea los directorios padre de filePath
+func crearDirs(t *testing.T, s store.Store, user, filePath string) {
+	t.Helper()
+	dir := path.Dir(filePath)
+	if dir == "/" || dir == "." {
+		return
+	}
+	// Crear de la raíz hacia abajo.
+	cur := ""
+	for _, p := range strings.Split(strings.Trim(dir, "/"), "/") {
+		if p == "" {
+			continue
+		}
+		cur += "/" + p
+		if !s.DirectoryExists(user, cur) {
+			if err := s.CreateDirectory(user, cur); err != nil {
+				t.Fatalf("preparación falló (CreateDirectory %s): %v", cur, err)
+			}
+		}
+	}
+}
+
+// subir hace InitPut + quórum + CompletePut para dejar el archivo listo.
 func subir(t *testing.T, s store.Store, user, filePath string) {
 	t.Helper()
+	crearDirs(t, s, user, filePath)
 	if _, err := InitPut(s, user, filePath, BlockSizeBytes); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
+	alcanzarQuorum(t, s, user, filePath)
+	if err := CompletePut(s, user, filePath, hashValido); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+}
+
+// subirListo completa una subida ya iniciada
+func subirListo(t *testing.T, s store.Store, user, filePath string) {
+	t.Helper()
+	alcanzarQuorum(t, s, user, filePath)
 	if err := CompletePut(s, user, filePath, hashValido); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
@@ -259,9 +350,7 @@ func TestDeleteFileLiberaCuota(t *testing.T) {
 	if _, err := InitPut(s, "ana", "/a.txt", size); err != nil {
 		t.Fatalf("preparación falló: %v", err)
 	}
-	if err := CompletePut(s, "ana", "/a.txt", hashValido); err != nil {
-		t.Fatalf("preparación falló: %v", err)
-	}
+	subirListo(t, s, "ana", "/a.txt")
 
 	if err := DeleteFile(s, "ana", "/a.txt"); err != nil {
 		t.Fatalf("DeleteFile falló: %v", err)
@@ -271,7 +360,7 @@ func TestDeleteFileLiberaCuota(t *testing.T) {
 	if u.QuotaUsedBytes != 0 {
 		t.Fatalf("cuota usada = %d, se esperaba 0 tras borrar", u.QuotaUsedBytes)
 	}
-	if _, err := s.GetFile("/a.txt"); err == nil {
+	if _, err := s.GetFile("ana", "/a.txt"); err == nil {
 		t.Fatalf("el archivo debió borrarse")
 	}
 }

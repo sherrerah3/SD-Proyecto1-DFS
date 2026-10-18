@@ -16,11 +16,12 @@ var _ Store = (*MemoryStore)(nil)
 // MemoryStore implementa Store en memoria, protegido por un Mutex.
 type MemoryStore struct {
 	mu          sync.RWMutex
-	files       map[string]FileMetadata  // key: path
+	files       map[string]FileMetadata  // key: owner\x00path
 	blocks      map[string]BlockMetadata // key: blockID
 	datanodes   map[string]DataNodeInfo  // key: datanode ID
 	users       map[string]UserInfo      // key: username
-	directories map[string]bool          // key: directories
+	directories map[string]bool          // key: owner\x00dir
+	pendingDel  map[string][]string      // key: datanode ID -> blockIDs por borrar
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -30,31 +31,38 @@ func NewMemoryStore() *MemoryStore {
 		datanodes:   make(map[string]DataNodeInfo),
 		users:       make(map[string]UserInfo),
 		directories: make(map[string]bool),
+		pendingDel:  make(map[string][]string),
 	}
 }
 
 // --- Archivos ---
 
+// fileKey separa el espacio de rutas de cada usuario
+func fileKey(owner, filePath string) string {
+	return owner + "\x00" + filePath
+}
+
 func (s *MemoryStore) CreateFile(f FileMetadata) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.files[f.Path]; exists {
-		return fmt.Errorf("el archivo %s ya existe", f.Path)
+	key := fileKey(f.Owner, f.Path)
+	if _, exists := s.files[key]; exists {
+		return ErrFileAlreadyExists
 	}
 
-	s.files[f.Path] = f
+	s.files[key] = f
 
 	return nil
 }
 
-func (s *MemoryStore) GetFile(path string) (FileMetadata, error) {
+func (s *MemoryStore) GetFile(owner, filePath string) (FileMetadata, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	f, ok := s.files[path]
+	f, ok := s.files[fileKey(owner, filePath)]
 	if !ok {
-		return FileMetadata{}, fmt.Errorf("archivo no encontrado: %s", path)
+		return FileMetadata{}, fmt.Errorf("archivo no encontrado: %s", filePath)
 	}
 
 	return f, nil
@@ -64,29 +72,31 @@ func (s *MemoryStore) UpdateFile(f FileMetadata) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.files[f.Path]; !ok {
+	key := fileKey(f.Owner, f.Path)
+	if _, ok := s.files[key]; !ok {
 		return fmt.Errorf("archivo no encontrado: %s", f.Path)
 	}
 
-	s.files[f.Path] = f
+	s.files[key] = f
 	return nil
 }
 
-func (s *MemoryStore) DeleteFile(path string) error {
+func (s *MemoryStore) DeleteFile(owner, filePath string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.files[path]; !ok {
-		return fmt.Errorf("archivo no encontrado: %s", path)
+	key := fileKey(owner, filePath)
+	if _, ok := s.files[key]; !ok {
+		return fmt.Errorf("archivo no encontrado: %s", filePath)
 	}
 
-	delete(s.files, path)
+	delete(s.files, key)
 
 	return nil
 }
 
-// ListFiles devuelve los archivos bajo dirPath, sin orden garantizado.
-func (s *MemoryStore) ListFiles(dirPath string) ([]FileMetadata, error) {
+// ListFiles devuelve los archivos del usuario bajo dirPath, sin orden
+func (s *MemoryStore) ListFiles(owner, dirPath string) ([]FileMetadata, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -97,8 +107,8 @@ func (s *MemoryStore) ListFiles(dirPath string) ([]FileMetadata, error) {
 
 	result := make([]FileMetadata, 0)
 
-	for path, f := range s.files {
-		if strings.HasPrefix(path, prefix) {
+	for _, f := range s.files {
+		if f.Owner == owner && strings.HasPrefix(f.Path, prefix) {
 			result = append(result, f)
 		}
 	}
@@ -127,6 +137,52 @@ func (s *MemoryStore) GetBlockLocation(blockID string) (BlockMetadata, error) {
 	}
 
 	return b, nil
+}
+
+// ReportBlock anota la confirmación de un DataNode
+func (s *MemoryStore) ReportBlock(blockID, dataNodeID, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	b, ok := s.blocks[blockID]
+	if !ok {
+		return fmt.Errorf("bloque no encontrado: %s", blockID)
+	}
+
+	if b.Confirmations == nil {
+		b.Confirmations = make(map[string]string)
+	}
+	b.Confirmations[dataNodeID] = hash
+	s.blocks[blockID] = b
+	return nil
+}
+
+// DeleteBlockLocation olvida la ubicación de un bloque
+func (s *MemoryStore) DeleteBlockLocation(blockID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.blocks, blockID)
+	return nil
+}
+
+// EnqueueBlockDeletion encola un borrado para el próximo heartbeat del DataNode
+func (s *MemoryStore) EnqueueBlockDeletion(dataNodeID, blockID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.pendingDel[dataNodeID] = append(s.pendingDel[dataNodeID], blockID)
+	return nil
+}
+
+// DequeueBlockDeletions devuelve y limpia los borrados pendientes
+func (s *MemoryStore) DequeueBlockDeletions(dataNodeID string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ids := s.pendingDel[dataNodeID]
+	delete(s.pendingDel, dataNodeID)
+	return ids, nil
 }
 
 // --- DataNodes ---
@@ -247,6 +303,34 @@ func (s *MemoryStore) UpdateQuotaUsed(username string, deltaBytes int64) error {
 	return nil
 }
 
+// ReserveQuota suma a la cuota solo si no supera maxBytes (atómico)
+func (s *MemoryStore) ReserveQuota(username string, deltaBytes, maxBytes int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	u, ok := s.users[username]
+	if !ok {
+		return fmt.Errorf("usuario no encontrado: %s", username)
+	}
+
+	if u.QuotaUsedBytes+deltaBytes > maxBytes {
+		return ErrQuotaExceeded
+	}
+
+	u.QuotaUsedBytes += deltaBytes
+	s.users[username] = u
+
+	return nil
+}
+
+// CountUsers devuelve cuántos usuarios hay
+func (s *MemoryStore) CountUsers() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.users)
+}
+
 // --- Snapshot para persistencia ---
 
 // snapshot es el estado persistente, sin datanodes (su estado se reconstruye solo).
@@ -296,6 +380,8 @@ var (
 	ErrDirectoryNotFound = errors.New("directorio no encontrado")
 	ErrDirectoryExists   = errors.New("el directorio ya existe")
 	ErrDirectoryNotEmpty = errors.New("el directorio no está vacío")
+	ErrQuotaExceeded     = errors.New("cuota de almacenamiento excedida")
+	ErrFileAlreadyExists = errors.New("ya existe un archivo en esa ruta")
 )
 
 func directoryKey(username, dirPath string) string {

@@ -61,7 +61,7 @@ func (srv *Server) handlePutInit(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, p.BlockID)
 	}
 
-	token, err := service.GenerateCapabilityToken(username, ids, capabilityTTL(len(ids)))
+	token, err := service.GenerateCapabilityToken(username, service.OpPut, ids, capabilityTTL(len(ids)))
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -125,7 +125,7 @@ func (srv *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, b.BlockID)
 	}
 
-	token, err := service.GenerateCapabilityToken(username, ids, capabilityTTL(len(ids)))
+	token, err := service.GenerateCapabilityToken(username, service.OpGet, ids, capabilityTTL(len(ids)))
 	if err != nil {
 		writeServiceError(w, err)
 		return

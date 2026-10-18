@@ -12,9 +12,10 @@ type FileMetadata struct {
 }
 
 type BlockMetadata struct {
-	BlockID   string
-	DataNodes []string // IDs de los DataNodes que tienen una réplica
-	SHA256    string
+	BlockID       string
+	DataNodes     []string          // IDs de los DataNodes a los que se asignó una réplica
+	SHA256        string            // hash del bloque, fijado cuando se alcanza el quórum
+	Confirmations map[string]string // datanodeID -> hash reportado
 }
 
 type DataNodeInfo struct {

@@ -163,36 +163,40 @@ func TestValidateJWTInvalid(t *testing.T) {
 }
 
 func TestCapabilityTokenRoundTrip(t *testing.T) {
-	t.Setenv(jwtSecretEnvVar, testSecret)
+	t.Setenv(capabilitySecretEnvVar, testSecret)
 	blockIDs := []string{"blk-1", "blk-2", "blk-3"}
 
-	token, err := GenerateCapabilityToken("ana", blockIDs, 30*time.Second)
+	token, err := GenerateCapabilityToken("ana", OpPut, blockIDs, 30*time.Second)
 	if err != nil {
 		t.Fatalf("generating capability token failed: %v", err)
 	}
 
-	sub, got, err := ValidateCapabilityToken(token)
+	cap, err := ValidateCapabilityToken(token)
 	if err != nil {
 		t.Fatalf("validating capability token failed: %v", err)
 	}
-	if sub != "ana" {
-		t.Fatalf("username = %q, expected \"ana\"", sub)
+	if cap.Username != "ana" {
+		t.Fatalf("username = %q, expected \"ana\"", cap.Username)
 	}
-	if len(got) != len(blockIDs) {
-		t.Fatalf("got %d blocks, expected %d", len(got), len(blockIDs))
+	if cap.Op != OpPut {
+		t.Fatalf("op = %q, expected %q", cap.Op, OpPut)
+	}
+	if len(cap.BlockIDs) != len(blockIDs) {
+		t.Fatalf("got %d blocks, expected %d", len(cap.BlockIDs), len(blockIDs))
 	}
 	for i := range blockIDs {
-		if got[i] != blockIDs[i] {
-			t.Fatalf("block[%d] = %q, expected %q", i, got[i], blockIDs[i])
+		if cap.BlockIDs[i] != blockIDs[i] {
+			t.Fatalf("block[%d] = %q, expected %q", i, cap.BlockIDs[i], blockIDs[i])
 		}
 	}
 }
 
 func TestTokensNoSonIntercambiables(t *testing.T) {
 	t.Setenv(jwtSecretEnvVar, testSecret)
+	t.Setenv(capabilitySecretEnvVar, "otro-secreto-de-capacidades")
 
 	// Un capability token no debe valer como token de sesión.
-	capTok, err := GenerateCapabilityToken("ana", []string{"blk-1"}, 30*time.Second)
+	capTok, err := GenerateCapabilityToken("ana", OpGet, []string{"blk-1"}, 30*time.Second)
 	if err != nil {
 		t.Fatalf("generar capability token falló: %v", err)
 	}
@@ -205,7 +209,37 @@ func TestTokensNoSonIntercambiables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generar token de sesión falló: %v", err)
 	}
-	if _, _, err := ValidateCapabilityToken(ses); err != ErrInvalidToken {
+	if _, err := ValidateCapabilityToken(ses); err != ErrInvalidToken {
 		t.Fatalf("ValidateCapabilityToken aceptó un token de sesión: err = %v", err)
 	}
+}
+
+func TestRegisterTopeDeUsuarios(t *testing.T) {
+	t.Setenv(jwtSecretEnvVar, testSecret)
+	s := store.NewMemoryStore()
+
+	// Sin bcrypt para que el test sea rápido
+	for i := 0; i < MaxUsers; i++ {
+		if err := s.CreateUser(store.UserInfo{Username: "user" + itoa(i), PasswordHash: "x"}); err != nil {
+			t.Fatalf("preparación %d falló: %v", i, err)
+		}
+	}
+
+	// El registro número 51 debe ser rechazado por el tope.
+	if err := Register(s, "unomas", "secreta1"); err != ErrTooManyUsers {
+		t.Fatalf("error = %v, se esperaba ErrTooManyUsers", err)
+	}
+}
+
+// itoa evita importar strconv solo para el test.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	digs := []byte{}
+	for n > 0 {
+		digs = append([]byte{byte('0' + n%10)}, digs...)
+		n /= 10
+	}
+	return string(digs)
 }

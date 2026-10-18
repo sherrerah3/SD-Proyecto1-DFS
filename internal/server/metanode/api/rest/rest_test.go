@@ -12,10 +12,13 @@ import (
 	"dfsha/internal/server/metanode/store"
 )
 
+const testClusterSecret = "cluster-secret-de-prueba"
+
 // setup arma un servidor REST de prueba sobre un MemoryStore con datanodes vivos.
 func setup(t *testing.T) (http.Handler, store.Store) {
 	t.Helper()
 	t.Setenv("METANODE_JWT_SECRET", "test-secret")
+	t.Setenv("DFSHA_CAPABILITY_SECRET", "test-capability-secret")
 
 	s := store.NewMemoryStore()
 	for i, id := range []string{"dn1", "dn2", "dn3"} {
@@ -23,7 +26,43 @@ func setup(t *testing.T) (http.Handler, store.Store) {
 			t.Fatalf("preparación falló: %v", err)
 		}
 	}
-	return NewServer(s).Routes(), s
+	srv := NewServer(s)
+	srv.SetClusterSecret(testClusterSecret)
+	return srv.Routes(), s
+}
+
+// alcanzarQuorumAPI reporta cada bloque desde dos DataNodes
+func alcanzarQuorumAPI(t *testing.T, h http.Handler, initBody []byte, sha string) {
+	t.Helper()
+	var init struct {
+		Blocks []struct {
+			BlockID string `json:"block_id"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(initBody, &init); err != nil {
+		t.Fatalf("no se pudo leer la respuesta de put-init: %v", err)
+	}
+	for _, b := range init.Blocks {
+		for _, dn := range []string{"dn1", "dn2"} {
+			rec := doCluster(t, h, "POST", "/internal/blocks/report", map[string]string{
+				"block_id": b.BlockID, "datanode_id": dn, "sha256": sha,
+			})
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("report de bloque devolvió %d: %s", rec.Code, rec.Body.String())
+			}
+		}
+	}
+}
+
+// doCluster envía una petición con el header del secreto de clúster.
+func doCluster(t *testing.T, h http.Handler, method, target string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(method, target, bytes.NewReader(raw))
+	req.Header.Set("X-Cluster-Secret", testClusterSecret)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 // do envía una petición y devuelve la respuesta grabada.
@@ -101,7 +140,7 @@ func TestRutaProtegidaSinOConTokenInvalido(t *testing.T) {
 func TestCapabilityTokenNoSirveComoSesion(t *testing.T) {
 	h, _ := setup(t)
 
-	capTok, err := service.GenerateCapabilityToken("ana", []string{"blk-1"}, service.SessionTTL)
+	capTok, err := service.GenerateCapabilityToken("ana", service.OpGet, []string{"blk-1"}, service.SessionTTL)
 	if err != nil {
 		t.Fatalf("no se pudo generar capability token: %v", err)
 	}
@@ -138,6 +177,7 @@ func TestArchivoAjenoDa404(t *testing.T) {
 		t.Fatalf("put-init de A devolvió %d", init.Code)
 	}
 	sha := strings.Repeat("0", 64)
+	alcanzarQuorumAPI(t, h, init.Body.Bytes(), sha)
 	complete := do(t, h, "POST", "/files/put-complete", tokenA, map[string]any{"path": "/a.txt", "sha256": sha})
 	if complete.Code != http.StatusNoContent {
 		t.Fatalf("put-complete de A devolvió %d", complete.Code)
@@ -156,10 +196,12 @@ func TestPutCompleteDosVecesDa409(t *testing.T) {
 	h, _ := setup(t)
 	token := registraYLoguea(t, h, "ana", "secreta1")
 
-	if init := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "/a.txt", "size_bytes": 1024}); init.Code != http.StatusOK {
+	init := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "/a.txt", "size_bytes": 1024})
+	if init.Code != http.StatusOK {
 		t.Fatalf("put-init devolvió %d", init.Code)
 	}
 	sha := strings.Repeat("0", 64)
+	alcanzarQuorumAPI(t, h, init.Body.Bytes(), sha)
 	body := map[string]any{"path": "/a.txt", "sha256": sha}
 
 	if primero := do(t, h, "POST", "/files/put-complete", token, body); primero.Code != http.StatusNoContent {

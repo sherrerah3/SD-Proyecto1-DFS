@@ -28,7 +28,7 @@ func TestPersistentStorePersisteEntreInstancias(t *testing.T) {
 	if _, err := p2.GetUser("ana"); err != nil {
 		t.Fatalf("el usuario no persistió: %v", err)
 	}
-	f, err := p2.GetFile("/a.txt")
+	f, err := p2.GetFile("ana", "/a.txt")
 	if err != nil {
 		t.Fatalf("el archivo no persistió: %v", err)
 	}

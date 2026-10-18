@@ -55,16 +55,21 @@ func statusFor(err error) int {
 	case errors.Is(err, service.ErrInvalidCredentials),
 		errors.Is(err, service.ErrInvalidToken):
 		return http.StatusUnauthorized // 401
-	case errors.Is(err, service.ErrQuotaExceeded):
+	case errors.Is(err, service.ErrQuotaExceeded),
+		errors.Is(err, service.ErrTooManyUsers):
 		return http.StatusForbidden // 403
-	case errors.Is(err, service.ErrNotFound):
+	case errors.Is(err, service.ErrNotFound),
+		errors.Is(err, service.ErrParentMissing):
 		return http.StatusNotFound // 404
 	case errors.Is(err, service.ErrUserAlreadyExists),
 		errors.Is(err, service.ErrAlreadyExists),
 		errors.Is(err, service.ErrAlreadyCompleted),
+		errors.Is(err, service.ErrQuorumNotMet),
 		errors.Is(err, store.ErrDirectoryNotEmpty):
 		return http.StatusConflict // 409
 	case errors.Is(err, service.ErrNoDataNodes):
+		return http.StatusServiceUnavailable // 503
+	case errors.Is(err, store.ErrNotLeader):
 		return http.StatusServiceUnavailable // 503
 	default:
 		return http.StatusInternalServerError // 500

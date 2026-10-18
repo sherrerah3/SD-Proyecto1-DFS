@@ -56,7 +56,7 @@ func TestGetFile(t *testing.T) {
 				t.Fatalf("preparación falló: %v", err)
 			}
 
-			got, err := s.GetFile(tc.path)
+			got, err := s.GetFile("ana", tc.path)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetFile() error = %v, wantErr = %v", err, tc.wantErr)
 			}
@@ -87,13 +87,13 @@ func TestDeleteFile(t *testing.T) {
 				t.Fatalf("preparación falló: %v", err)
 			}
 
-			err := s.DeleteFile(tc.path)
+			err := s.DeleteFile("ana", tc.path)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("DeleteFile() error = %v, wantErr = %v", err, tc.wantErr)
 			}
 
 			if !tc.wantErr {
-				if _, err := s.GetFile(tc.path); err == nil {
+				if _, err := s.GetFile("ana", tc.path); err == nil {
 					t.Fatalf("el archivo %q debería haberse borrado", tc.path)
 				}
 			}
@@ -110,12 +110,14 @@ func TestListFiles(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		owner     string
 		dirPath   string
 		wantCount int
 	}{
-		{name: "lista archivos de un directorio", dirPath: "/home/ana", wantCount: 2},
-		{name: "lista archivos de otro directorio", dirPath: "/home/bob", wantCount: 1},
-		{name: "directorio sin archivos", dirPath: "/tmp", wantCount: 0},
+		{name: "lista archivos de un directorio", owner: "ana", dirPath: "/home/ana", wantCount: 2},
+		{name: "lista archivos de otro directorio", owner: "bob", dirPath: "/home/bob", wantCount: 1},
+		{name: "no ve archivos de otro usuario", owner: "ana", dirPath: "/home/bob", wantCount: 0},
+		{name: "directorio sin archivos", owner: "ana", dirPath: "/tmp", wantCount: 0},
 	}
 
 	for _, tc := range tests {
@@ -127,7 +129,7 @@ func TestListFiles(t *testing.T) {
 				}
 			}
 
-			got, err := s.ListFiles(tc.dirPath)
+			got, err := s.ListFiles(tc.owner, tc.dirPath)
 			if err != nil {
 				t.Fatalf("ListFiles() error inesperado: %v", err)
 			}

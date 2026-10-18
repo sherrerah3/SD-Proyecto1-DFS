@@ -50,6 +50,11 @@ func (srv *Server) handleRegisterDataNode(
 	})
 }
 
+type heartbeatResponse struct {
+	Status       string   `json:"status"`
+	DeleteBlocks []string `json:"delete_blocks"` // bloques que este DataNode debe borrar
+}
+
 func (srv *Server) handleDataNodeHeartbeat(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -73,7 +78,37 @@ func (srv *Server) handleDataNodeHeartbeat(
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "alive",
+	// Borrados pendientes de este DataNode.
+	toDelete, err := srv.store.DequeueBlockDeletions(req.DataNodeID)
+	if err != nil {
+		toDelete = nil
+	}
+
+	writeJSON(w, http.StatusOK, heartbeatResponse{
+		Status:       "alive",
+		DeleteBlocks: toDelete,
 	})
+}
+
+type reportBlockRequest struct {
+	BlockID    string `json:"block_id"`
+	DataNodeID string `json:"datanode_id"`
+	SHA256     string `json:"sha256"`
+}
+
+// handleReportBlock registra la confirmación de un bloque.
+func (srv *Server) handleReportBlock(w http.ResponseWriter, r *http.Request) {
+	var req reportBlockRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.BlockID == "" || req.DataNodeID == "" {
+		writeError(w, http.StatusBadRequest, "reporte de bloque inválido")
+		return
+	}
+	if err := service.ReportBlockStored(srv.store, req.BlockID, req.DataNodeID, req.SHA256); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
