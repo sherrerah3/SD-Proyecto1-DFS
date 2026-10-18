@@ -8,7 +8,15 @@ type FileMetadata struct {
 	Owner     string
 	SizeBytes int64
 	SHA256    string
-	BlockIDs  []string // orden importa: así se reconstruye el archivo
+	BlockIDs  []string        // orden importa: así se reconstruye el archivo
+	Pending   *PendingVersion // reemplazo en subida; la versión actual sigue legible
+}
+
+// PendingVersion es la versión nueva de un archivo que aún no se confirma.
+type PendingVersion struct {
+	SizeBytes     int64
+	BlockIDs      []string
+	ReservedBytes int64 // cuota reservada al iniciar el reemplazo
 }
 
 type BlockMetadata struct {

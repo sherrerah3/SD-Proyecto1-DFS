@@ -423,3 +423,87 @@ func TestSetDataNodeAlive(t *testing.T) {
 		t.Fatalf("error = %v, se esperaba ErrDataNodeNotFound", err)
 	}
 }
+
+func TestModifyFile(t *testing.T) {
+	s := NewMemoryStore()
+	if err := s.CreateFile(FileMetadata{Name: "a.txt", Path: "/a.txt", Owner: "ana", SizeBytes: 1}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	prev, err := s.ModifyFile("ana", "/a.txt", func(f *FileMetadata) error {
+		f.SizeBytes = 9
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ModifyFile() error inesperado: %v", err)
+	}
+	if prev.SizeBytes != 1 {
+		t.Fatalf("el valor previo debía ser 1, fue %d", prev.SizeBytes)
+	}
+	got, _ := s.GetFile("ana", "/a.txt")
+	if got.SizeBytes != 9 {
+		t.Fatalf("SizeBytes = %d, se esperaba 9", got.SizeBytes)
+	}
+}
+
+func TestModifyFileNoGuardaSiFnFalla(t *testing.T) {
+	s := NewMemoryStore()
+	if err := s.CreateFile(FileMetadata{Name: "a.txt", Path: "/a.txt", Owner: "ana", SizeBytes: 1}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	_, err := s.ModifyFile("ana", "/a.txt", func(f *FileMetadata) error {
+		f.SizeBytes = 9
+		return ErrQuotaExceeded
+	})
+	if err != ErrQuotaExceeded {
+		t.Fatalf("error = %v, se esperaba el de fn", err)
+	}
+	got, _ := s.GetFile("ana", "/a.txt")
+	if got.SizeBytes != 1 {
+		t.Fatalf("no debía guardarse el cambio, SizeBytes = %d", got.SizeBytes)
+	}
+}
+
+func TestModifyFileInexistenteOAjeno(t *testing.T) {
+	s := NewMemoryStore()
+	if err := s.CreateFile(FileMetadata{Name: "a.txt", Path: "/a.txt", Owner: "ana"}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	noop := func(*FileMetadata) error { return nil }
+	if _, err := s.ModifyFile("ana", "/no.txt", noop); err == nil {
+		t.Fatalf("se esperaba error con un archivo inexistente")
+	}
+	if _, err := s.ModifyFile("bob", "/a.txt", noop); err == nil {
+		t.Fatalf("se esperaba error con un archivo ajeno")
+	}
+}
+
+func TestDeleteDirectoryConArchivosNoSeBorra(t *testing.T) {
+	s := NewMemoryStore()
+	if err := s.CreateDirectory("ana", "/docs"); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	if err := s.CreateFile(FileMetadata{Name: "a.txt", Path: "/docs/a.txt", Owner: "ana"}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+
+	if err := s.DeleteDirectory("ana", "/docs"); err != ErrDirectoryNotEmpty {
+		t.Fatalf("error = %v, se esperaba ErrDirectoryNotEmpty", err)
+	}
+	if !s.DirectoryExists("ana", "/docs") {
+		t.Fatalf("el directorio con archivos no debía borrarse")
+	}
+
+	// Los archivos de otro usuario con la misma ruta no impiden borrar.
+	if err := s.DeleteFile("ana", "/docs/a.txt"); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	if err := s.CreateFile(FileMetadata{Name: "a.txt", Path: "/docs/a.txt", Owner: "bob"}); err != nil {
+		t.Fatalf("preparación falló: %v", err)
+	}
+	if err := s.DeleteDirectory("ana", "/docs"); err != nil {
+		t.Fatalf("el archivo de bob no debía bloquear el rmdir de ana: %v", err)
+	}
+}

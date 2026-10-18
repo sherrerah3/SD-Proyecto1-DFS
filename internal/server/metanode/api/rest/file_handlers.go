@@ -26,8 +26,10 @@ type blockDTO struct {
 // --- POST /files/put-init ---
 
 type putInitRequest struct {
-	Path      string `json:"path"`
-	SizeBytes int64  `json:"size_bytes"`
+	Path       string `json:"path"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Replace    bool   `json:"replace"`     // reemplaza un archivo existente
+	BaseSHA256 string `json:"base_sha256"` // versión que se descargó (solo con replace)
 }
 
 type putInitResponse struct {
@@ -48,7 +50,13 @@ func (srv *Server) handlePutInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	placements, err := service.InitPut(srv.store, username, filePath, req.SizeBytes)
+	var placements []service.BlockPlacement
+	var err error
+	if req.Replace {
+		placements, err = service.InitReplace(srv.store, username, filePath, req.SizeBytes, req.BaseSHA256)
+	} else {
+		placements, err = service.InitPut(srv.store, username, filePath, req.SizeBytes)
+	}
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -99,6 +107,7 @@ func (srv *Server) handlePutComplete(w http.ResponseWriter, r *http.Request) {
 type getFileResponse struct {
 	Blocks          []blockDTO `json:"blocks"`
 	SHA256          string     `json:"sha256"`
+	SizeBytes       int64      `json:"size_bytes"`
 	CapabilityToken string     `json:"capability_token"`
 }
 
@@ -112,7 +121,7 @@ func (srv *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	blocks, sha, err := service.ResolveGet(srv.store, username, filePath)
+	blocks, sha, size, err := service.ResolveGet(srv.store, username, filePath)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -131,7 +140,7 @@ func (srv *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, getFileResponse{Blocks: dtos, SHA256: sha, CapabilityToken: token})
+	writeJSON(w, http.StatusOK, getFileResponse{Blocks: dtos, SHA256: sha, SizeBytes: size, CapabilityToken: token})
 }
 
 // --- GET /files?dir=/docs ---

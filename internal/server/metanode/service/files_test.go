@@ -182,12 +182,15 @@ func TestResolveGetValido(t *testing.T) {
 	}
 	subirListo(t, s, "ana", "/a.txt")
 
-	blocks, hash, err := ResolveGet(s, "ana", "/a.txt")
+	blocks, hash, size, err := ResolveGet(s, "ana", "/a.txt")
 	if err != nil {
 		t.Fatalf("ResolveGet falló: %v", err)
 	}
 	if len(blocks) != 2 {
 		t.Fatalf("se esperaban 2 bloques, hay %d", len(blocks))
+	}
+	if size != 2*BlockSizeBytes {
+		t.Fatalf("size = %d, se esperaba %d", size, 2*BlockSizeBytes)
 	}
 	if hash != hashValido {
 		t.Fatalf("hash = %q, se esperaba %q", hash, hashValido)
@@ -208,7 +211,7 @@ func TestResolveGetReplicasVivasPrimero(t *testing.T) {
 		t.Fatalf("preparación falló: %v", err)
 	}
 
-	blocks, _, err := ResolveGet(s, "ana", "/a.txt")
+	blocks, _, _, err := ResolveGet(s, "ana", "/a.txt")
 	if err != nil {
 		t.Fatalf("ResolveGet falló: %v", err)
 	}
@@ -228,7 +231,7 @@ func TestResolveGetSubidaIncompleta(t *testing.T) {
 		t.Fatalf("preparación falló: %v", err)
 	}
 
-	if _, _, err := ResolveGet(s, "ana", "/a.txt"); err != ErrNotFound {
+	if _, _, _, err := ResolveGet(s, "ana", "/a.txt"); err != ErrNotFound {
 		t.Fatalf("error = %v, se esperaba ErrNotFound", err)
 	}
 }
@@ -244,7 +247,7 @@ func TestResolveGetAjeno(t *testing.T) {
 	}
 
 	// Un archivo ajeno se trata como inexistente, no se revela que existe.
-	if _, _, err := ResolveGet(s, "bob", "/a.txt"); err != ErrNotFound {
+	if _, _, _, err := ResolveGet(s, "bob", "/a.txt"); err != ErrNotFound {
 		t.Fatalf("error = %v, se esperaba ErrNotFound", err)
 	}
 }

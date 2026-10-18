@@ -81,6 +81,26 @@ func (s *MemoryStore) UpdateFile(f FileMetadata) error {
 	return nil
 }
 
+// ModifyFile aplica fn sobre una copia y la guarda solo si fn no falla
+func (s *MemoryStore) ModifyFile(owner, filePath string, fn func(*FileMetadata) error) (FileMetadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := fileKey(owner, filePath)
+	prev, ok := s.files[key]
+	if !ok {
+		return FileMetadata{}, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+	}
+
+	next := prev
+	if err := fn(&next); err != nil {
+		return prev, err
+	}
+
+	s.files[key] = next
+	return prev, nil
+}
+
 func (s *MemoryStore) DeleteFile(owner, filePath string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -382,6 +402,7 @@ var (
 	ErrDirectoryNotEmpty = errors.New("el directorio no está vacío")
 	ErrQuotaExceeded     = errors.New("cuota de almacenamiento excedida")
 	ErrFileAlreadyExists = errors.New("ya existe un archivo en esa ruta")
+	ErrFileNotFound      = errors.New("archivo no encontrado")
 )
 
 func directoryKey(username, dirPath string) string {
@@ -475,8 +496,8 @@ func (s *MemoryStore) DeleteDirectory(username, dirPath string) error {
 
 	// A directory cannot be removed while it contains files.
 	prefix := dirPath + "/"
-	for filePath, file := range s.files {
-		if file.Owner == username && strings.HasPrefix(filePath, prefix) {
+	for _, file := range s.files {
+		if file.Owner == username && strings.HasPrefix(file.Path, prefix) {
 			return ErrDirectoryNotEmpty
 		}
 	}

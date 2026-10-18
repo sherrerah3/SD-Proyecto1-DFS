@@ -103,3 +103,45 @@ func TestPersistentStoreArranqueSinArchivo(t *testing.T) {
 		t.Fatalf("no debía haber usuarios en un store recién creado")
 	}
 }
+
+func TestPersistentStoreModifyFilePersisteYRespetaLiderazgo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	p, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatalf("NewPersistentStore falló: %v", err)
+	}
+	if err := p.CreateFile(FileMetadata{Path: "/a.txt", Owner: "ana", SizeBytes: 1}); err != nil {
+		t.Fatalf("CreateFile falló: %v", err)
+	}
+
+	pending := &PendingVersion{SizeBytes: 5, BlockIDs: []string{"b1"}}
+	if _, err := p.ModifyFile("ana", "/a.txt", func(f *FileMetadata) error {
+		f.Pending = pending
+		return nil
+	}); err != nil {
+		t.Fatalf("ModifyFile falló: %v", err)
+	}
+
+	// La versión pendiente debe sobrevivir a un reinicio.
+	p2, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatalf("NewPersistentStore (segunda) falló: %v", err)
+	}
+	f, _ := p2.GetFile("ana", "/a.txt")
+	if f.Pending == nil || f.Pending.SizeBytes != 5 {
+		t.Fatalf("la versión pendiente no persistió: %+v", f.Pending)
+	}
+
+	// Sin liderazgo no debe modificar ni la memoria.
+	p.SetCanWrite(func() bool { return false })
+	if _, err := p.ModifyFile("ana", "/a.txt", func(f *FileMetadata) error {
+		f.SizeBytes = 99
+		return nil
+	}); err != ErrNotLeader {
+		t.Fatalf("error = %v, se esperaba ErrNotLeader", err)
+	}
+	got, _ := p.GetFile("ana", "/a.txt")
+	if got.SizeBytes != 1 {
+		t.Fatalf("la memoria no debía cambiar sin liderazgo, SizeBytes = %d", got.SizeBytes)
+	}
+}

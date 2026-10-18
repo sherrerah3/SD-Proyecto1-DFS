@@ -212,3 +212,65 @@ func TestPutCompleteDosVecesDa409(t *testing.T) {
 		t.Fatalf("segundo put-complete: código %d, se esperaba 409", segundo.Code)
 	}
 }
+
+func TestReemplazoPorAPI(t *testing.T) {
+	h, _ := setup(t)
+	token := registraYLoguea(t, h, "ana", "secreta1")
+	otro := registraYLoguea(t, h, "bob", "secreta1")
+	sha1 := strings.Repeat("0", 64)
+	sha2 := strings.Repeat("b", 64)
+
+	init := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "/a.txt", "size_bytes": 1024})
+	if init.Code != http.StatusOK {
+		t.Fatalf("put-init devolvió %d", init.Code)
+	}
+	alcanzarQuorumAPI(t, h, init.Body.Bytes(), sha1)
+	if rec := do(t, h, "POST", "/files/put-complete", token, map[string]any{"path": "/a.txt", "sha256": sha1}); rec.Code != http.StatusNoContent {
+		t.Fatalf("put-complete devolvió %d", rec.Code)
+	}
+
+	// GET informa el tamaño.
+	var got struct {
+		SHA256    string `json:"sha256"`
+		SizeBytes int64  `json:"size_bytes"`
+	}
+	rec := do(t, h, "GET", "/files/a.txt", token, nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.SizeBytes != 1024 || got.SHA256 != sha1 {
+		t.Fatalf("GET devolvió %q (err=%v), se esperaba size 1024 y hash %q", rec.Body.String(), err, sha1)
+	}
+
+	// Sin replace, la ruta ocupada sigue dando 409.
+	if rec := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "/a.txt", "size_bytes": 10}); rec.Code != http.StatusConflict {
+		t.Fatalf("put-init sobre archivo existente: código %d, se esperaba 409", rec.Code)
+	}
+
+	// Versión vieja: 409. Archivo ajeno: 404.
+	stale := map[string]any{"path": "/a.txt", "size_bytes": 2048, "replace": true, "base_sha256": sha2}
+	if rec := do(t, h, "POST", "/files/put-init", token, stale); rec.Code != http.StatusConflict {
+		t.Fatalf("replace con base vieja: código %d, se esperaba 409", rec.Code)
+	}
+	ajeno := map[string]any{"path": "/a.txt", "size_bytes": 2048, "replace": true, "base_sha256": sha1}
+	if rec := do(t, h, "POST", "/files/put-init", otro, ajeno); rec.Code != http.StatusNotFound {
+		t.Fatalf("replace de archivo ajeno: código %d, se esperaba 404", rec.Code)
+	}
+
+	// Reemplazo válido: el original sigue legible hasta completar.
+	ok := map[string]any{"path": "/a.txt", "size_bytes": 2048, "replace": true, "base_sha256": sha1}
+	re := do(t, h, "POST", "/files/put-init", token, ok)
+	if re.Code != http.StatusOK {
+		t.Fatalf("replace válido: código %d", re.Code)
+	}
+	rec = do(t, h, "GET", "/files/a.txt", token, nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.SizeBytes != 1024 {
+		t.Fatalf("durante el reemplazo el original debía seguir igual: %s", rec.Body.String())
+	}
+
+	alcanzarQuorumAPI(t, h, re.Body.Bytes(), sha2)
+	if rec := do(t, h, "POST", "/files/put-complete", token, map[string]any{"path": "/a.txt", "sha256": sha2}); rec.Code != http.StatusNoContent {
+		t.Fatalf("put-complete del reemplazo devolvió %d", rec.Code)
+	}
+	rec = do(t, h, "GET", "/files/a.txt", token, nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.SizeBytes != 2048 || got.SHA256 != sha2 {
+		t.Fatalf("tras el reemplazo se esperaba size 2048 y hash %q, GET: %s", sha2, rec.Body.String())
+	}
+}

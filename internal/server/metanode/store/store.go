@@ -11,6 +11,8 @@ type Store interface {
 	CreateFile(f FileMetadata) error
 	GetFile(owner, filePath string) (FileMetadata, error)
 	UpdateFile(f FileMetadata) error
+	// ModifyFile aplica fn de forma atómica y devuelve el valor previo
+	ModifyFile(owner, filePath string, fn func(*FileMetadata) error) (FileMetadata, error)
 	DeleteFile(owner, filePath string) error
 	ListFiles(owner, dirPath string) ([]FileMetadata, error)
 

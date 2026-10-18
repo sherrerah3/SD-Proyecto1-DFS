@@ -108,6 +108,17 @@ func (p *PersistentStore) UpdateFile(f FileMetadata) error {
 	return p.persist()
 }
 
+func (p *PersistentStore) ModifyFile(owner, filePath string, fn func(*FileMetadata) error) (FileMetadata, error) {
+	if err := p.checkLeader(); err != nil {
+		return FileMetadata{}, err
+	}
+	prev, err := p.MemoryStore.ModifyFile(owner, filePath, fn)
+	if err != nil {
+		return prev, err
+	}
+	return prev, p.persist()
+}
+
 func (p *PersistentStore) DeleteFile(owner, filePath string) error {
 	if err := p.checkLeader(); err != nil {
 		return err

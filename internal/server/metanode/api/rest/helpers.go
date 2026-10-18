@@ -65,6 +65,7 @@ func statusFor(err error) int {
 		errors.Is(err, service.ErrAlreadyExists),
 		errors.Is(err, service.ErrAlreadyCompleted),
 		errors.Is(err, service.ErrQuorumNotMet),
+		errors.Is(err, service.ErrStaleVersion),
 		errors.Is(err, store.ErrDirectoryNotEmpty):
 		return http.StatusConflict // 409
 	case errors.Is(err, service.ErrNoDataNodes):
