@@ -1,9 +1,12 @@
 package shell
 
 import (
+	"dfsha/internal/client/api"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
+	"strings"
 )
 
 func handleLs(s *shell, args []string) bool {
@@ -147,15 +150,155 @@ func handleMkdir(s *shell, args []string) bool {
 }
 
 func handleRmdir(s *shell, args []string) bool {
-	fmt.Printf(errorNotImplemented, commandRmdir)
-	fmt.Println()
+	if len(args) != 1 {
+		fmt.Println("Usage: rmdir <directory>")
+		return true
+	}
+
+	dir := resolvePath(s.currentPath, args[0])
+	if dir == "/" {
+		fmt.Println("rmdir: cannot remove the root directory")
+		return true
+	}
+
+	if dir == s.currentPath {
+		fmt.Println("rmdir: cannot remove the current directory")
+		return true
+	}
+
+	if err := s.metanode.RemoveDirectory(dir, s.session.Token); err != nil {
+		fmt.Printf("rmdir: %v\n", err)
+		return true
+	}
+
+	fmt.Printf("Directory removed: %s\n", dir)
 	return true
 }
 
 func handleRm(s *shell, args []string) bool {
-	fmt.Printf(errorNotImplemented, commandRm)
-	fmt.Println()
+	recursive := false
+	force := false
+	var target string
+
+	for _, arg := range args {
+		if arg == "--" {
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") && target == "" {
+			for _, flag := range arg[1:] {
+				switch flag {
+				case 'r':
+					recursive = true
+				case 'f':
+					force = true
+				default:
+					fmt.Printf("rm: invalid option -- '%c'\n", flag)
+					fmt.Println("Usage: rm [-r] [-f] <path>")
+					return true
+				}
+			}
+			continue
+		}
+
+		if target != "" {
+			fmt.Println("Usage: rm [-r] [-f] <path>")
+			return true
+		}
+
+		target = arg
+	}
+
+	if target == "" {
+		fmt.Println("Usage: rm [-r] [-f] <path>")
+		return true
+	}
+
+	remotePath := resolvePath(s.currentPath, target)
+
+	if remotePath == "/" {
+		fmt.Println("rm: refusing to remove the root directory")
+		return true
+	}
+
+	if remotePath == s.currentPath {
+		fmt.Println("rm: refusing to remove the current directory")
+		return true
+	}
+
+	isDirectory := s.metanode.DirectoryExists(
+		remotePath,
+		s.session.Token,
+	) == nil
+
+	if isDirectory && !recursive {
+		fmt.Printf("rm: %s: is a directory (use -r)\n", remotePath)
+		return true
+	}
+
+	var err error
+	if isDirectory {
+		err = removeRemoteDirectory(s, remotePath, force)
+	} else {
+		err = s.metanode.RemoveFile(remotePath, s.session.Token)
+	}
+
+	if err != nil {
+		if force && isNotFound(err) {
+			return true
+		}
+		fmt.Printf("rm: %v\n", err)
+		return true
+	}
 	return true
+}
+
+// removeRemoteDirectory deletes children first and the directory last.
+
+func removeRemoteDirectory(s *shell, dir string, force bool) error {
+	entries, err := s.metanode.ListFiles(dir, s.session.Token)
+	if err != nil {
+		if force && isNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, entry := range entries {
+		child := path.Join(dir, entry.Name)
+
+		if entry.Kind == "directory" {
+			if err := removeRemoteDirectory(s, child, force); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := s.metanode.RemoveFile(child, s.session.Token); err != nil {
+			if force && isNotFound(err) {
+				continue
+			}
+			return err
+		}
+
+		fmt.Printf("Removed: %s\n", child)
+	}
+
+	if err := s.metanode.RemoveDirectory(dir, s.session.Token); err != nil {
+		if force && isNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	fmt.Printf("Removed directory: %s\n", dir)
+	return nil
+}
+
+// isNotFound identifies HTTP 404 errors returned by the metanode.
+func isNotFound(err error) bool {
+	var apiErr *api.Error
+	return errors.As(err, &apiErr) && apiErr.Status == 404
 }
 
 func resolvePath(currentPath, target string) string {

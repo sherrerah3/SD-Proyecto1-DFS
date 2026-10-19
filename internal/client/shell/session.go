@@ -45,6 +45,49 @@ func checkSession(s *shell) error {
 	return nil
 }
 
+// ensureSessionValid checks the active session before an authenticated
+// command runs. If the server rejects the token with HTTP 401, the
+// expired session is cleared and the user is asked to log in again.
+func ensureSessionValid(s *shell) bool {
+	if s.session == nil {
+		return false
+	}
+
+	err := s.metanode.ValidateSession(s.session.Token)
+	if err == nil {
+		return true
+	}
+
+	var apiErr *api.Error
+	if errors.As(err, &apiErr) && apiErr.Status == 401 {
+		clearErr := clearSession()
+		s.session = nil
+
+		if clearErr != nil {
+			reportShellError(
+				s,
+				fmt.Sprintf("failed to clear expired session: %v", clearErr),
+			)
+		}
+
+		message := "Session expired. Please log in again using 'login'."
+		fmt.Println(message)
+
+		if s.logger != nil {
+			s.logger.Println(message)
+		}
+
+		return false
+	}
+
+	reportShellError(
+		s,
+		fmt.Sprintf("could not validate session: %v", err),
+	)
+
+	return false
+}
+
 func loadSession() (*session, error) {
 	path, err := getSessionPath()
 	if err != nil {

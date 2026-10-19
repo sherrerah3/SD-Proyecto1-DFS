@@ -6,10 +6,13 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"google.golang.org/grpc"
 
 	datanodev1 "dfsha/internal/proto/datanode/v1"
+	"dfsha/internal/server/datanode/auth"
 	"dfsha/internal/server/datanode/blockstore"
 	"dfsha/internal/server/datanode/crypto"
 	"dfsha/internal/server/datanode/grpcserver"
@@ -21,7 +24,7 @@ import (
 func Run() error {
 	cfg, err := LoadConfig()
 	if err != nil {
-		return fmt.Errorf("configuración inválida: %w", err)
+		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	store, err := buildStore(cfg)
@@ -31,16 +34,8 @@ func Run() error {
 
 	listener, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
-		return fmt.Errorf("no se pudo escuchar en %s: %w", cfg.Addr, err)
+		return fmt.Errorf("failed to listen on %s: %w", cfg.Addr, err)
 	}
-
-	server := grpc.NewServer()
-	datanodev1.RegisterBlockServiceServer(server, grpcserver.NewServer(store, replication.NewReplicator()))
-
-	// El heartbeat corre en paralelo al servidor. Usa el LogReporter por defecto
-	// hasta que el Metanode (Persona 2) publique el servicio gRPC de Heartbeat.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	metanodeURL := os.Getenv("DFSHA_METANODE_URL")
 	if metanodeURL == "" {
@@ -51,30 +46,64 @@ func Run() error {
 	if advertiseAddr == "" {
 		_, port, err := net.SplitHostPort(cfg.Addr)
 		if err != nil {
-			return fmt.Errorf("dirección gRPC inválida %q: %w", cfg.Addr, err)
+			return fmt.Errorf("invalid gRPC address %q: %w", cfg.Addr, err)
 		}
-
 		advertiseAddr = net.JoinHostPort("localhost", port)
 	}
+
+	// Reporter hacia el Metanode.
+	reporter := heartbeat.NewHTTPReporter(metanodeURL)
+	reporter.SetClusterSecret(cfg.ClusterSecret)
+
+	// Replicador entre DataNodes.
+	replicator := replication.NewReplicator()
+	replicator.SetClusterSecret(cfg.ClusterSecret)
+
+	// Servidor gRPC con auth y reporte de bloques.
+	validator := auth.NewValidator(cfg.CapabilitySecret)
+	grpcSrv := grpcserver.NewServer(store, replicator).
+		WithAuth(validator, cfg.ClusterSecret, cfg.ID).
+		WithReporter(reporter)
+
+	server := grpc.NewServer(
+		grpc.StatsHandler(grpcserver.NewLoggingStatsHandler(cfg.ID)),
+		grpc.UnaryInterceptor(grpcserver.UnaryLoggingInterceptor(cfg.ID)),
+		grpc.StreamInterceptor(grpcserver.StreamLoggingInterceptor(cfg.ID)),
+	)
+	datanodev1.RegisterBlockServiceServer(server, grpcSrv)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	agent := heartbeat.NewAgent(
 		cfg.ID,
 		advertiseAddr,
 		store,
-		heartbeat.NewHTTPReporter(metanodeURL),
-		nil,
+		reporter,
+		func() int64 { return freeBytes(cfg.Dir) },
 	)
+	agent.SetDeleter(store) // aplica los borrados que ordena el Metanode
 
 	go func() {
 		if err := agent.Run(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("el agente de heartbeat terminó con error: %v", err)
+			log.Printf("datanode %s: heartbeat agent exited with error: %v", cfg.ID, err)
 		}
 	}()
 
-	log.Printf("datanode %s escuchando en %s (dir=%s, cifrado=%t)", cfg.ID, cfg.Addr, cfg.Dir, cfg.Key != nil)
+	// Apagado ordenado.
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		log.Printf("datanode %s: shutting down...", cfg.ID)
+		cancel()
+		server.GracefulStop()
+	}()
+
+	log.Printf("datanode %s listening on %s (dir=%s, encryption=%t)", cfg.ID, cfg.Addr, cfg.Dir, cfg.Key != nil)
 
 	if err := server.Serve(listener); err != nil {
-		return fmt.Errorf("el servidor gRPC terminó con error: %w", err)
+		return fmt.Errorf("gRPC server exited with error: %w", err)
 	}
 
 	return nil
@@ -84,7 +113,7 @@ func Run() error {
 func buildStore(cfg Config) (blockstore.BlockStore, error) {
 	disk, err := blockstore.NewDiskStore(cfg.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo crear el store en disco: %w", err)
+		return nil, fmt.Errorf("failed to create disk store: %w", err)
 	}
 
 	if cfg.Key == nil {
@@ -93,7 +122,7 @@ func buildStore(cfg Config) (blockstore.BlockStore, error) {
 
 	cipher, err := crypto.NewAESGCM(cfg.Key)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo crear el cifrador: %w", err)
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
 	return blockstore.NewEncryptedBlockStore(disk, cipher), nil

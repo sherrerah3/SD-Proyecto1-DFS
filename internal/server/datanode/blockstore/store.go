@@ -17,6 +17,9 @@ type BlockStore interface {
 	// Verify recalcula el hash de un bloque desde disco.
 	Verify(blockID string) (BlockReport, bool, error)
 
-	// List devuelve el reporte de todos los bloques almacenados.
+	// List returns a report for every stored block, including a freshly calculated hash.
 	List() ([]BlockReport, error)
+
+	// ListIDs returns stored block IDs without reading or hashing the block contents.
+	ListIDs() ([]string, error)
 }

@@ -22,43 +22,43 @@ type AESGCM struct {
 // NewAESGCM crea el cifrador a partir de una clave de KeySize bytes.
 func NewAESGCM(key []byte) (*AESGCM, error) {
 	if len(key) != KeySize {
-		return nil, fmt.Errorf("la clave debe tener %d bytes, tiene %d", KeySize, len(key))
+		return nil, fmt.Errorf("key must be %d bytes long, got %d", KeySize, len(key))
 	}
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo crear el cifrador AES: %w", err)
+		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
 	}
 
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo crear GCM: %w", err)
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
 	return &AESGCM{aead: aead}, nil
 }
 
-func (c *AESGCM) Encrypt(plaintext []byte) ([]byte, error) {
+func (c *AESGCM) Encrypt(plaintext, aad []byte) ([]byte, error) {
 	nonce := make([]byte, c.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("no se pudo generar el nonce: %w", err)
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Seal antepone el nonce al ciphertext y añade el tag de autenticación.
-	return c.aead.Seal(nonce, nonce, plaintext, nil), nil
+	// Seal antepone el nonce y autentica el aad.
+	return c.aead.Seal(nonce, nonce, plaintext, aad), nil
 }
 
-func (c *AESGCM) Decrypt(ciphertext []byte) ([]byte, error) {
+func (c *AESGCM) Decrypt(ciphertext, aad []byte) ([]byte, error) {
 	nonceSize := c.aead.NonceSize()
 	if len(ciphertext) < nonceSize {
-		return nil, fmt.Errorf("ciphertext demasiado corto")
+		return nil, fmt.Errorf("ciphertext is too short")
 	}
 
 	nonce, sealed := ciphertext[:nonceSize], ciphertext[nonceSize:]
 
-	plaintext, err := c.aead.Open(nil, nonce, sealed, nil)
+	plaintext, err := c.aead.Open(nil, nonce, sealed, aad)
 	if err != nil {
-		return nil, fmt.Errorf("falló el descifrado o la autenticación: %w", err)
+		return nil, fmt.Errorf("decryption or authentication failed: %w", err)
 	}
 
 	return plaintext, nil

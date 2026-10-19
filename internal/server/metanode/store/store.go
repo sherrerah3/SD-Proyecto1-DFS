@@ -2,21 +2,29 @@ package store
 
 import "errors"
 
-// ErrDataNodeNotFound distingue "no existe" de otros fallos del store
-var ErrDataNodeNotFound = errors.New("datanode no encontrado")
+var ErrDataNodeNotFound = errors.New("datanode not found")
 
-// Store define el contrato de persistencia de metadatos, seguro para uso concurrente.
 type Store interface {
 	// Archivos
 	CreateFile(f FileMetadata) error
-	GetFile(path string) (FileMetadata, error)
+	GetFile(owner, filePath string) (FileMetadata, error)
 	UpdateFile(f FileMetadata) error
-	DeleteFile(path string) error
-	ListFiles(dirPath string) ([]FileMetadata, error)
+
+	// Sustituye la metadata del archivo de forma atómica.
+	// Devuelve la metadata anterior para liberar sus bloques tras el commit.
+	ReplaceFileWithStaged(
+		owner, targetPath, stagingPath string,
+	) (FileMetadata, error)
+
+	DeleteFile(owner, filePath string) error
+	ListFiles(owner, dirPath string) ([]FileMetadata, error)
 
 	// Bloques
 	SaveBlockLocation(b BlockMetadata) error
 	GetBlockLocation(blockID string) (BlockMetadata, error)
+	ListBlockLocations() ([]BlockMetadata, error)
+	DeleteBlockLocation(blockID string) error
+	ReportBlock(blockID, dataNodeID, hash string) error
 
 	// DataNodes
 	RegisterDataNode(d DataNodeInfo) error
@@ -29,9 +37,24 @@ type Store interface {
 	CreateUser(u UserInfo) error
 	GetUser(username string) (UserInfo, error)
 	UpdateQuotaUsed(username string, deltaBytes int64) error
+	ReserveQuota(
+		username string,
+		deltaBytes, maxBytes int64,
+	) error
+	CountUsers() int
 
 	// Directorios
 	CreateDirectory(username, dirPath string) error
+	DeleteDirectory(username, dirPath string) error
 	DirectoryExists(username, dirPath string) bool
 	ListDirectories(username, dirPath string) ([]string, error)
+
+	// Durable deletion queue for each DataNode.
+	EnqueueBlockDeletion(dataNodeID, blockID string) error
+	DequeueBlockDeletions(dataNodeID string) ([]string, error)
+	ListBlockDeletions(dataNodeID string) ([]string, error)
+	AckBlockDeletions(dataNodeID string, blockIDs []string) error
+
+	// Reports whether any file metadata still references this block.
+	IsBlockReferenced(blockID string) bool
 }

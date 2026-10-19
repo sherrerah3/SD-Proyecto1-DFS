@@ -56,12 +56,12 @@ func (f *fakeReplica) StoreBlock(stream datanodev1.BlockService_StoreBlockServer
 
 	header := first.GetHeader()
 	if header == nil {
-		return errors.New("se esperaba el header primero")
+		return errors.New("expected the header first")
 	}
 
 	// Las réplicas no deben recibir más targets (el pipeline no debe propagarse).
 	if len(header.GetReplicaTargets()) != 0 {
-		return errors.New("una réplica no debería recibir replica_targets")
+		return errors.New("a replica should not receive replica_targets")
 	}
 
 	var buf bytes.Buffer
@@ -104,7 +104,7 @@ func newTestReplicator(replicas map[string]*fakeReplica) *Replicator {
 		dial: func(ctx context.Context, target string) (datanodev1.BlockServiceClient, func() error, error) {
 			r, ok := replicas[target]
 			if !ok {
-				return nil, nil, errors.New("target desconocido: " + target)
+				return nil, nil, errors.New("unknown target: " + target)
 			}
 
 			conn, err := grpc.NewClient(
@@ -140,24 +140,24 @@ func TestReplicateToAllTargets(t *testing.T) {
 
 	rep := newTestReplicator(map[string]*fakeReplica{"dnB": dnB, "dnC": dnC})
 
-	data := []byte("bloque a replicar")
+	data := []byte("block to replicate")
 	stored, err := rep.Replicate(context.Background(), blockFrom("blk-1", "", data), []string{"dnB", "dnC"})
 	if err != nil {
-		t.Fatalf("Replicate() error inesperado: %v", err)
+		t.Fatalf("Replicate() error unexpected: %v", err)
 	}
 
 	if len(stored) != 2 {
-		t.Fatalf("Replicate() reportó %d réplicas, se esperaban 2", len(stored))
+		t.Fatalf("Replicate() reported %d replicas, expected 2", len(stored))
 	}
 
 	for name, r := range map[string]*fakeReplica{"dnB": dnB, "dnC": dnC} {
 		got, ok := r.get("blk-1")
 		if !ok {
-			t.Fatalf("la réplica %s no almacenó el bloque", name)
+			t.Fatalf("replica %s did not store the block", name)
 		}
 
 		if !bytes.Equal(got, data) {
-			t.Fatalf("la réplica %s guardó %q, se esperaba %q", name, got, data)
+			t.Fatalf("replica %s stored %q, expected %q", name, got, data)
 		}
 	}
 }
@@ -168,14 +168,14 @@ func TestReplicatePartialFailure(t *testing.T) {
 	// dnC no existe en el mapa: su dial fallará.
 	rep := newTestReplicator(map[string]*fakeReplica{"dnB": dnB})
 
-	data := []byte("bloque con una réplica caída")
+	data := []byte("block with one unavailable replica")
 	stored, err := rep.Replicate(context.Background(), blockFrom("blk-1", "", data), []string{"dnB", "dnC"})
 
 	if err == nil {
-		t.Fatalf("Replicate() debió reportar el fallo de dnC")
+		t.Fatalf("Replicate() should have reportar el fallo de dnC")
 	}
 
 	if len(stored) != 1 || stored[0] != "dnB" {
-		t.Fatalf("Replicate() stored = %v, se esperaba [dnB]", stored)
+		t.Fatalf("Replicate() stored = %v, expected [dnB]", stored)
 	}
 }

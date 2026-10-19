@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,7 +13,7 @@ import (
 // Nombres de los archivos de coordinación dentro de la carpeta compartida.
 const (
 	heartbeatFileName = "heartbeat.txt"
-	lockFileName      = "metanode.lock"
+	lockFileName      = "MetaNode.lock"
 )
 
 // lockInfo es el contenido del archivo de lock: quién lo tiene y desde cuándo.
@@ -21,19 +22,16 @@ type lockInfo struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// StartHeartbeatWriter escribe la hora actual cada interval mientras el nodo sea líder.
+// StartHeartbeatWriter renueva el lock y escribe el heartbeat mientras seamos dueños.
 func StartHeartbeatWriter(ctx context.Context, basePath, nodeID string, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
-			if err := writeHeartbeat(basePath); err != nil {
-				// No es fatal: se reintenta en el siguiente tick.
-				_ = err
-			}
-			if err := RenewLock(basePath, nodeID); err != nil {
-				_ = err
+			// Si no renueva, ya no somos líderes: sin heartbeat.
+			if err := RenewLock(basePath, nodeID); err == nil {
+				_ = writeHeartbeat(basePath)
 			}
 			select {
 			case <-ctx.Done():
@@ -66,42 +64,98 @@ func IsLeaderAlive(basePath string, deadThreshold time.Duration) bool {
 	return time.Since(last) <= deadThreshold
 }
 
-// TryAcquireLock toma el lock si está libre o vencido; devuelve true si lo consiguió.
+// DefaultLockTTL es el tiempo tras el cual un lock sin renovar vence.
+var DefaultLockTTL = 15 * time.Second
+
+// TryAcquireLock toma el lock: libre (O_EXCL) o vencido (rename y O_EXCL).
 func TryAcquireLock(basePath, nodeID string, lockTTL time.Duration) bool {
+	if err := os.MkdirAll(basePath, 0o755); err != nil {
+		return false
+	}
 	path := filepath.Join(basePath, lockFileName)
 
-	data, err := os.ReadFile(path)
-	if err == nil {
-		var current lockInfo
-		if json.Unmarshal(data, &current) == nil {
-			// Lock reciente de OTRO nodo: no se puede tomar.
-			if current.Owner != nodeID && time.Since(current.Timestamp) < lockTTL {
-				return false
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return false // error de lectura distinto de "no existe"
+	// Ya es nuestro: renovar.
+	if cur, err := readLock(path); err == nil && cur.Owner == nodeID {
+		return RenewLock(basePath, nodeID) == nil
 	}
 
-	return writeLock(path, nodeID) == nil
-}
+	// Lock libre.
+	if createLockExclusive(path, nodeID) == nil {
+		return true
+	}
 
-// RenewLock reescribe el lock con el nodo actual y la hora de ahora.
-func RenewLock(basePath, nodeID string) error {
-	return writeLock(filepath.Join(basePath, lockFileName), nodeID)
-}
-
-// OwnsLock indica si el lock pertenece ahora mismo a nodeID (lo usa canWrite del store).
-func OwnsLock(basePath, nodeID string) bool {
-	data, err := os.ReadFile(filepath.Join(basePath, lockFileName))
+	// Solo se roba si está vencido.
+	cur, err := readLock(path)
 	if err != nil {
 		return false
 	}
-	var current lockInfo
-	if json.Unmarshal(data, &current) != nil {
+	if time.Since(cur.Timestamp) < lockTTL {
+		return false // lock reciente de otro nodo
+	}
+
+	// Solo un nodo gana el rename.
+	stale := fmt.Sprintf("%s.stale-%s-%d", path, nodeID, time.Now().UnixNano())
+	if err := os.Rename(path, stale); err != nil {
 		return false
 	}
-	return current.Owner == nodeID
+	_ = os.Remove(stale)
+
+	return createLockExclusive(path, nodeID) == nil
+}
+
+// createLockExclusive crea el lock con O_EXCL.
+func createLockExclusive(path, nodeID string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	data, _ := json.Marshal(lockInfo{Owner: nodeID, Timestamp: time.Now().UTC()})
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// RenewLock renueva el lock solo si sigue siendo nuestro.
+func RenewLock(basePath, nodeID string) error {
+	path := filepath.Join(basePath, lockFileName)
+	cur, err := readLock(path)
+	if err != nil {
+		return err
+	}
+	if cur.Owner != nodeID {
+		return errors.New("lock is not yours now")
+	}
+	return writeLock(path, nodeID)
+}
+
+// OwnsLock indica si el lock es de nodeID y no está vencido (fencing).
+func OwnsLock(basePath, nodeID string) bool {
+	cur, err := readLock(filepath.Join(basePath, lockFileName))
+	if err != nil {
+		return false
+	}
+	if cur.Owner != nodeID {
+		return false
+	}
+	return time.Since(cur.Timestamp) < DefaultLockTTL
+}
+
+func readLock(path string) (lockInfo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return lockInfo{}, err
+	}
+	var li lockInfo
+	if err := json.Unmarshal(data, &li); err != nil {
+		return lockInfo{}, err
+	}
+	return li, nil
 }
 
 func writeLock(path, nodeID string) error {
@@ -112,14 +166,29 @@ func writeLock(path, nodeID string) error {
 	return atomicWrite(path, data)
 }
 
-// atomicWrite escribe a un temporal y renombra, para no dejar archivos a medias.
+// atomicWrite escribe a un temporal con fsync y renombra.
 func atomicWrite(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp := fmt.Sprintf("%s.tmp-%d", path, time.Now().UnixNano())
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return replaceFile(tmp, path)
 }

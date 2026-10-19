@@ -1,6 +1,7 @@
 package blockstore
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -28,7 +29,7 @@ type DiskStore struct {
 // NewDiskStore crea el directorio de datos si no existe y devuelve el store.
 func NewDiskStore(dir string) (*DiskStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("no se pudo crear el directorio de bloques %s: %w", dir, err)
+		return nil, fmt.Errorf("failed to create block directory %s: %w", dir, err)
 	}
 
 	return &DiskStore{dir: dir}, nil
@@ -37,11 +38,11 @@ func NewDiskStore(dir string) (*DiskStore, error) {
 // blockPath valida el blockID y arma su ruta en disco.
 func (s *DiskStore) blockPath(blockID string) (string, error) {
 	if blockID == "" {
-		return "", fmt.Errorf("block ID vacío")
+		return "", fmt.Errorf("empty block ID")
 	}
 
 	if strings.ContainsAny(blockID, `/\`) || strings.Contains(blockID, "..") {
-		return "", fmt.Errorf("block ID inválido: %s", blockID)
+		return "", fmt.Errorf("invalid block ID: %s", blockID)
 	}
 
 	return filepath.Join(s.dir, blockID), nil
@@ -60,7 +61,7 @@ func (s *DiskStore) Write(blockID string, r io.Reader) (BlockInfo, error) {
 	// quede un bloque a medias si falla la escritura.
 	tmp, err := os.CreateTemp(s.dir, tempPrefix+blockID)
 	if err != nil {
-		return BlockInfo{}, fmt.Errorf("no se pudo crear el temporal del bloque %s: %w", blockID, err)
+		return BlockInfo{}, fmt.Errorf("failed to create temporary file for block %s: %w", blockID, err)
 	}
 
 	tmpPath := tmp.Name()
@@ -70,17 +71,17 @@ func (s *DiskStore) Write(blockID string, r io.Reader) (BlockInfo, error) {
 	if err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
-		return BlockInfo{}, fmt.Errorf("falló la escritura del bloque %s: %w", blockID, err)
+		return BlockInfo{}, fmt.Errorf("failed to write block %s: %w", blockID, err)
 	}
 
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
-		return BlockInfo{}, fmt.Errorf("falló al cerrar el temporal del bloque %s: %w", blockID, err)
+		return BlockInfo{}, fmt.Errorf("failed to close temporary file for block %s: %w", blockID, err)
 	}
 
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := replaceFile(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
-		return BlockInfo{}, fmt.Errorf("falló al confirmar el bloque %s: %w", blockID, err)
+		return BlockInfo{}, fmt.Errorf("failed to commit block %s: %w", blockID, err)
 	}
 
 	return BlockInfo{
@@ -91,7 +92,7 @@ func (s *DiskStore) Write(blockID string, r io.Reader) (BlockInfo, error) {
 }
 
 func (s *DiskStore) Read(blockID string) (io.ReadCloser, BlockInfo, error) {
-	path, err := s.blockPath(blockID)
+	filePath, err := s.blockPath(blockID)
 	if err != nil {
 		return nil, BlockInfo{}, err
 	}
@@ -99,21 +100,37 @@ func (s *DiskStore) Read(blockID string) (io.ReadCloser, BlockInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	info, err := os.Stat(path)
+	f, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, BlockInfo{}, fmt.Errorf("bloque no encontrado: %s", blockID)
+			return nil, BlockInfo{}, fmt.Errorf("block not found: %s", blockID)
 		}
-
-		return nil, BlockInfo{}, fmt.Errorf("no se pudo abrir el bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"failed to open block %s: %w",
+			blockID,
+			err,
+		)
 	}
+	defer f.Close()
 
-	f, err := os.Open(path)
+	data, err := io.ReadAll(f)
 	if err != nil {
-		return nil, BlockInfo{}, fmt.Errorf("no se pudo abrir el bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"failed to read block %s: %w",
+			blockID,
+			err,
+		)
 	}
 
-	return f, BlockInfo{BlockID: blockID, SizeBytes: info.Size()}, nil
+	sum := sha256.Sum256(data)
+
+	info := BlockInfo{
+		BlockID:   blockID,
+		SHA256:    hex.EncodeToString(sum[:]),
+		SizeBytes: int64(len(data)),
+	}
+
+	return io.NopCloser(bytes.NewReader(data)), info, nil
 }
 
 func (s *DiskStore) Delete(blockID string) (bool, error) {
@@ -130,7 +147,7 @@ func (s *DiskStore) Delete(blockID string) (bool, error) {
 			return false, nil
 		}
 
-		return false, fmt.Errorf("falló al borrar el bloque %s: %w", blockID, err)
+		return false, fmt.Errorf("failed to delete block %s: %w", blockID, err)
 	}
 
 	return true, nil
@@ -151,7 +168,7 @@ func (s *DiskStore) Verify(blockID string) (BlockReport, bool, error) {
 			return BlockReport{}, false, nil
 		}
 
-		return BlockReport{}, false, fmt.Errorf("falló al verificar el bloque %s: %w", blockID, err)
+		return BlockReport{}, false, fmt.Errorf("failed to verify block %s: %w", blockID, err)
 	}
 
 	return BlockReport{BlockID: blockID, SHA256: sum}, true, nil
@@ -163,25 +180,41 @@ func (s *DiskStore) List() ([]BlockReport, error) {
 
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo listar el directorio de bloques: %w", err)
+		return nil, fmt.Errorf("failed to list block directory: %w", err)
 	}
 
-	result := make([]BlockReport, 0)
-
-	for _, e := range entries {
-		// Se ignoran directorios y temporales a medio escribir.
-		if e.IsDir() || strings.HasPrefix(e.Name(), tempPrefix) {
+	result := make([]BlockReport, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), tempPrefix) {
 			continue
 		}
-
-		sum, err := hashFile(filepath.Join(s.dir, e.Name()))
+		sum, err := hashFile(filepath.Join(s.dir, entry.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("falló al verificar el bloque %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("failed to verify block %s: %w", entry.Name(), err)
 		}
+		result = append(result, BlockReport{BlockID: entry.Name(), SHA256: sum})
+	}
+	return result, nil
+}
 
-		result = append(result, BlockReport{BlockID: e.Name(), SHA256: sum})
+// ListIDs provides an inexpensive inventory of files stored on disk.
+func (s *DiskStore) ListIDs() ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list block directory: %w", err)
 	}
 
+	result := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		// Ignore directories and temporary files left by incomplete writes.
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), tempPrefix) {
+			continue
+		}
+		result = append(result, entry.Name())
+	}
 	return result, nil
 }
 

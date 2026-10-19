@@ -20,7 +20,7 @@ func TestLoginOK(t *testing.T) {
 
 		var body credentials
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("body inválido: %v", err)
+			t.Errorf("invalid body: %v", err)
 		}
 
 		if body.Username != "ana" || body.Password != "clave123" {
@@ -34,11 +34,11 @@ func TestLoginOK(t *testing.T) {
 
 	result, err := newTestClient(srv.URL).Login("ana", "clave123")
 	if err != nil {
-		t.Fatalf("Login falló: %v", err)
+		t.Fatalf("Login failed: %v", err)
 	}
 
 	if result.Token != "tok" || result.ExpiresIn != 60 {
-		t.Fatalf("resultado inesperado: %+v", result)
+		t.Fatalf("resultado unexpected: %+v", result)
 	}
 }
 
@@ -53,7 +53,7 @@ func TestRegisterNoContent(t *testing.T) {
 	defer srv.Close()
 
 	if err := newTestClient(srv.URL).Register("ana", "clave123"); err != nil {
-		t.Fatalf("Register falló: %v", err)
+		t.Fatalf("Register failed: %v", err)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestServerErrorIsReturned(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "credenciales inválidas"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid credentials"})
 	}))
 	defer srv.Close()
 
@@ -69,11 +69,11 @@ func TestServerErrorIsReturned(t *testing.T) {
 
 	var apiErr *Error
 	if !errors.As(err, &apiErr) {
-		t.Fatalf("se esperaba *Error, llegó: %v", err)
+		t.Fatalf("expected *Error, got: %v", err)
 	}
 
-	if apiErr.Status != http.StatusUnauthorized || apiErr.Message != "credenciales inválidas" {
-		t.Fatalf("error inesperado: %+v", apiErr)
+	if apiErr.Status != http.StatusUnauthorized || apiErr.Message != "invalid credentials" {
+		t.Fatalf("error unexpected: %+v", apiErr)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestFallsBackToNextMetanode(t *testing.T) {
 	defer alive.Close()
 
 	if err := newTestClient(deadURL, alive.URL).Register("ana", "clave123"); err != nil {
-		t.Fatalf("debió usar el segundo metanode: %v", err)
+		t.Fatalf("should have used the second MetaNode: %v", err)
 	}
 }
 
@@ -99,6 +99,6 @@ func TestAllMetanodesDown(t *testing.T) {
 	dead.Close()
 
 	if err := newTestClient(deadURL).Register("ana", "clave123"); err == nil {
-		t.Fatal("se esperaba error si no hay ningún metanode")
+		t.Fatal("expected an error when no MetaNode is available")
 	}
 }

@@ -30,11 +30,8 @@ const (
 	commandRm       = "rm"
 	commandPut      = "put"
 	commandGet      = "get"
-	commandOpen     = "open"
-	commandClose    = "close"
-	commandRead     = "read"
-	commandWrite    = "write"
-	commandLock     = "lock"
+	commandCat      = "cat"
+	commandEdit     = "edit"
 	commandExit     = "exit"
 
 	commandExitAlias = "quit"
@@ -78,13 +75,11 @@ const (
 	descriptionPwd      = "Print current directory"
 	descriptionMkdir    = "Create a directory"
 	descriptionRmdir    = "Remove a directory"
-	descriptionRm       = "Remove a file"
-	descriptionPut      = "Upload a file"
-	descriptionGet      = "Download a file"
-	descriptionOpen     = "Open a file"
-	descriptionClose    = "Close a file"
-	descriptionRead     = "Read from a file"
-	descriptionWrite    = "Write to a file"
+	descriptionRm       = "Remove files and directories (-r, -f, -rf)"
+	descriptionPut      = "Upload a file (-v, --verbose shows block storage)"
+	descriptionGet      = "Download a file (-v, --verbose shows block recovery)"
+	descriptionCat      = "Print file contents"
+	descriptionEdit     = "Edit a remote file locally"
 	descriptionExit     = "Exit " + shellVarProjectName + " (Ctrl+C)"
 )
 
@@ -168,28 +163,16 @@ var defaultCommands = []command{
 		execute:      handleGet,
 	},
 	{
-		name:         commandOpen,
-		description:  descriptionOpen,
+		name:         commandCat,
+		description:  descriptionCat,
 		requiresAuth: true,
-		execute:      handleOpen,
+		execute:      handleCat,
 	},
 	{
-		name:         commandClose,
-		description:  descriptionClose,
+		name:         commandEdit,
+		description:  descriptionEdit,
 		requiresAuth: true,
-		execute:      handleClose,
-	},
-	{
-		name:         commandRead,
-		description:  descriptionRead,
-		requiresAuth: true,
-		execute:      handleRead,
-	},
-	{
-		name:         commandWrite,
-		description:  descriptionWrite,
-		requiresAuth: true,
-		execute:      handleWrite,
+		execute:      handleEdit,
 	},
 	{
 		name:         commandExit,
@@ -246,15 +229,25 @@ func handleCommand(s *shell, input string) bool {
 		return true
 	}
 
-	if cmd.requiresAuth && s.session == nil {
-		reportShellError(
-			s,
-			errorAuthentication,
-		)
+	if cmd.requiresAuth {
+		if s.session == nil {
+			reportShellError(
+				s,
+				errorAuthentication,
+			)
 
-		fmt.Println()
+			fmt.Println()
 
-		return true
+			return true
+		}
+
+		// Validate the token before running an authenticated command.
+		// If it expired, ensureSessionValid clears the session and asks
+		// the user to log in again.
+		if !ensureSessionValid(s) {
+			fmt.Println()
+			return true
+		}
 	}
 
 	continueShell := cmd.execute(s, args)

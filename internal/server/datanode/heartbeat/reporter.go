@@ -1,6 +1,10 @@
 package heartbeat
 
-import "context"
+import (
+	"context"
+
+	"dfsha/internal/server/datanode/blockstore"
+)
 
 // Report es el estado que un DataNode comunica al Metanode en cada latido.
 type Report struct {
@@ -8,14 +12,19 @@ type Report struct {
 	Address    string
 	FreeBytes  int64
 	BlockCount int
+	Blocks     []blockstore.BlockReport
 }
 
-// Reporter es el borde hacia el Metanode. La implementación real (gRPC) la
-// provee el Metanode (Persona 2); aquí se depende solo de esta interfaz.
+// Reporter es el borde hacia el Metanode.
 type Reporter interface {
 	// Register anuncia el DataNode al Metanode al arrancar.
 	Register(ctx context.Context, r Report) error
 
-	// Beat envía un latido periódico con el estado actual.
-	Beat(ctx context.Context, r Report) error
+	// Beat envía un latido y devuelve los bloques a borrar.
+	Beat(ctx context.Context, r Report) ([]string, error)
+}
+
+// BlockDeleter aplica los borrados ordenados por el Metanode.
+type BlockDeleter interface {
+	Delete(blockID string) (bool, error)
 }

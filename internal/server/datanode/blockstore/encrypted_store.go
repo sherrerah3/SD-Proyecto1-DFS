@@ -32,14 +32,15 @@ func (s *EncryptedBlockStore) Write(blockID string, r io.Reader) (BlockInfo, err
 	// cifrarlo con AES-GCM, que necesita el mensaje entero para el tag.
 	plaintext, err := io.ReadAll(r)
 	if err != nil {
-		return BlockInfo{}, fmt.Errorf("falló la lectura del bloque %s: %w", blockID, err)
+		return BlockInfo{}, fmt.Errorf("failed to read block %s: %w", blockID, err)
 	}
 
 	sum := sha256.Sum256(plaintext)
 
-	ciphertext, err := s.cipher.Encrypt(plaintext)
+	// El block_id va como AAD para ligar el cifrado al bloque.
+	ciphertext, err := s.cipher.Encrypt(plaintext, []byte(blockID))
 	if err != nil {
-		return BlockInfo{}, fmt.Errorf("falló el cifrado del bloque %s: %w", blockID, err)
+		return BlockInfo{}, fmt.Errorf("failed to encrypt block %s: %w", blockID, err)
 	}
 
 	if _, err := s.inner.Write(blockID, bytes.NewReader(ciphertext)); err != nil {
@@ -58,20 +59,33 @@ func (s *EncryptedBlockStore) Read(blockID string) (io.ReadCloser, BlockInfo, er
 	if err != nil {
 		return nil, BlockInfo{}, err
 	}
-
 	defer rc.Close()
 
 	ciphertext, err := io.ReadAll(rc)
 	if err != nil {
-		return nil, BlockInfo{}, fmt.Errorf("falló la lectura del bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"failed to read block %s: %w",
+			blockID,
+			err,
+		)
 	}
 
-	plaintext, err := s.cipher.Decrypt(ciphertext)
+	plaintext, err := s.cipher.Decrypt(ciphertext, []byte(blockID))
 	if err != nil {
-		return nil, BlockInfo{}, fmt.Errorf("falló el descifrado del bloque %s: %w", blockID, err)
+		return nil, BlockInfo{}, fmt.Errorf(
+			"failed to decrypt block %s: %w",
+			blockID,
+			err,
+		)
 	}
 
-	info := BlockInfo{BlockID: blockID, SizeBytes: int64(len(plaintext))}
+	sum := sha256.Sum256(plaintext)
+
+	info := BlockInfo{
+		BlockID:   blockID,
+		SHA256:    hex.EncodeToString(sum[:]),
+		SizeBytes: int64(len(plaintext)),
+	}
 
 	return io.NopCloser(bytes.NewReader(plaintext)), info, nil
 }
@@ -97,7 +111,7 @@ func (s *EncryptedBlockStore) Verify(blockID string) (BlockReport, bool, error) 
 
 	plaintext, err := io.ReadAll(rc)
 	if err != nil {
-		return BlockReport{}, false, fmt.Errorf("falló al verificar el bloque %s: %w", blockID, err)
+		return BlockReport{}, false, fmt.Errorf("failed to verify block %s: %w", blockID, err)
 	}
 
 	sum := sha256.Sum256(plaintext)
@@ -128,4 +142,9 @@ func (s *EncryptedBlockStore) List() ([]BlockReport, error) {
 	}
 
 	return result, nil
+}
+
+// ListIDs delegates to the underlying disk store without decrypting every block.
+func (s *EncryptedBlockStore) ListIDs() ([]string, error) {
+	return s.inner.ListIDs()
 }

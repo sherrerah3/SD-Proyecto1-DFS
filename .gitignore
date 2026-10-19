@@ -33,3 +33,8 @@ desktop.ini
 Division.md
 Sistemas-Distribuidos.md
 Taller-SG-beta.md
+# Keep the documented Docker environment template in version control.
+!.env.example
+
+# Runtime data and persisted storage
+data/
