@@ -1,0 +1,40 @@
+# Binaries
+*.exe
+*.out
+*.test
+
+# Go build
+/bin/
+/build/
+dist/
+dfsha
+
+# Environment variables
+*.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Hidden directories
+.[!.]*/
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Documentos aparte
+Division.md
+Sistemas-Distribuidos.md
+Taller-SG-beta.md
+# Keep the documented Docker environment template in version control.
+!.env.example
+
+# Runtime data and persisted storage
+data/

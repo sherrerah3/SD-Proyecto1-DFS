@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package dfsha.datanode.v1;
+
+option go_package = "dfsha/internal/proto/datanode/v1;datanodev1";
+
+// BlockService expone el almacenamiento de bloques del DataNode.
+service BlockService {
+  rpc StoreBlock(stream StoreBlockRequest) returns (StoreBlockResponse);
+  rpc GetBlock(GetBlockRequest) returns (stream GetBlockResponse);
+  rpc DeleteBlock(DeleteBlockRequest) returns (DeleteBlockResponse);
+  rpc VerifyBlock(VerifyBlockRequest) returns (VerifyBlockResponse);
+}
+
+// --- StoreBlock ---
+
+// StoreBlockRequest: header en el primer mensaje, chunks en los siguientes.
+message StoreBlockRequest {
+  oneof payload {
+    StoreBlockHeader header = 1;
+    bytes chunk = 2; // datos opacos (pueden venir cifrados)
+  }
+}
+
+message StoreBlockHeader {
+  string block_id = 1;
+  string sha256 = 2;
+  int64 size_bytes = 3;
+  repeated string replica_targets = 4; // vacío = no reenviar la réplica
+}
+
+message StoreBlockResponse {
+  string block_id = 1;
+  string sha256 = 2; // hash calculado por este DataNode
+  int64 size_bytes = 3;
+  repeated string stored_on = 4;
+}
+
+// --- GetBlock ---
+
+message GetBlockRequest {
+  string block_id = 1;
+}
+
+// GetBlockResponse: header en el primer mensaje, chunks en los siguientes.
+message GetBlockResponse {
+  oneof payload {
+    GetBlockHeader header = 1;
+    bytes chunk = 2;
+  }
+}
+
+message GetBlockHeader {
+  string block_id = 1;
+  string sha256 = 2;
+  int64 size_bytes = 3;
+}
+
+// --- DeleteBlock ---
+
+message DeleteBlockRequest {
+  string block_id = 1;
+}
+
+message DeleteBlockResponse {
+  string block_id = 1;
+  bool deleted = 2; // false si el bloque no existía
+}
+
+// --- VerifyBlock ---
+
+message VerifyBlockRequest {
+  string block_id = 1;
+}
+
+message VerifyBlockResponse {
+  string block_id = 1;
+  bool exists = 2;
+  string sha256 = 3; // hash recalculado desde disco
+}
