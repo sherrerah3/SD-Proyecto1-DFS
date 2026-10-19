@@ -1,4 +1,12 @@
-# DFSHA — Distributed File Storage
+# DFSHA: Distributed File System
+
+## Team Members
+
+- **Juan Jose Gomez Ramirez**
+- **Samuel Herrera Hoyos**
+- **Sebastian Villegas Calle**
+
+## Project Description
 
 DFSHA is a distributed file-storage project written in Go. A **MetaNode** manages users and file-system metadata, while multiple **DataNodes** store file blocks on their own persistent disks. The repository includes a command-line client, a REST API, gRPC block operations, block replication, persisted MetaNode snapshots, and DataNode inventory reconciliation.
 
@@ -43,12 +51,12 @@ flowchart TB
 
 ### Components
 
-| Component | Responsibility | Interface in Docker Compose |
-|---|---|---|
-| MetaNode | User authentication, directory/file catalog, block locations, DataNode registry, persisted state, and pending deletion work | REST API on `metanode:8080`; host port `8080` is published |
-| DataNode | Stores, reads, verifies, and deletes block files; serves gRPC requests; reports local inventory and free space | Internal gRPC services `datanode-1:9000` through `datanode-4:9003` |
-| CLI client | Interactive login, directory and file commands, file upload/download | Runs inside the same Docker network so it can resolve DataNode service names |
-| `empty_database.py` | Backs up and removes the persisted MetaNode snapshot, with confirmation and preview options | Runs as a one-off Compose utility using the MetaNode volume |
+| Component           | Responsibility                                                                                                              | Interface in Docker Compose                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| MetaNode            | User authentication, directory/file catalog, block locations, DataNode registry, persisted state, and pending deletion work | REST API on `metanode:8080`; host port `8080` is published                   |
+| DataNode            | Stores, reads, verifies, and deletes block files; serves gRPC requests; reports local inventory and free space              | Internal gRPC services `datanode-1:9000` through `datanode-4:9003`           |
+| CLI client          | Interactive login, directory and file commands, file upload/download                                                        | Runs inside the same Docker network so it can resolve DataNode service names |
+| `empty_database.py` | Backs up and removes the persisted MetaNode snapshot, with confirmation and preview options                                 | Runs as a one-off Compose utility using the MetaNode volume                  |
 
 ### File upload/download flow
 
@@ -157,7 +165,7 @@ curl http://localhost:8080/health
 A healthy single-node MetaNode responds with JSON similar to:
 
 ```json
-{"status":"leader"}
+{ "status": "leader" }
 ```
 
 ### 5. Start the interactive client
@@ -230,7 +238,6 @@ docker compose --profile client run --rm client
 
 Do not run the client without a TTY if you intend to use `edit`. If opening the editor fails, DFSHA preserves the local working copy and prints its path.
 
-
 The exact command arguments are interpreted by the CLI. Use `help` for supported flags and syntax; `put -v` and `get -v` enable verbose block-level progress messages.
 
 The client container's home directory is stored in the `client-home` volume, so its local client configuration/history can survive one-off client-container runs. Each `docker compose run --rm client` invocation creates a new container process, but it reuses that home volume.
@@ -239,36 +246,36 @@ The client container's home directory is stored in the `client-home` volume, so 
 
 ### Compose service and port map
 
-| Service | Container endpoint | Published on host | Persistent volume |
-|---|---|---|---|
-| `metanode` | `http://metanode:8080` | `localhost:8080` | `metanode-data` |
-| `datanode-1` | `datanode-1:9000` (gRPC) | Internal Compose network only | `datanode-1-data` |
-| `datanode-2` | `datanode-2:9001` (gRPC) | Internal Compose network only | `datanode-2-data` |
-| `datanode-3` | `datanode-3:9002` (gRPC) | Internal Compose network only | `datanode-3-data` |
-| `datanode-4` | `datanode-4:9003` (gRPC) | Internal Compose network only | `datanode-4-data` |
-| `client` | Uses service DNS names | Not published | `client-home`, `client-logs` |
+| Service      | Container endpoint       | Published on host             | Persistent volume            |
+| ------------ | ------------------------ | ----------------------------- | ---------------------------- |
+| `metanode`   | `http://metanode:8080`   | `localhost:8080`              | `metanode-data`              |
+| `datanode-1` | `datanode-1:9000` (gRPC) | Internal Compose network only | `datanode-1-data`            |
+| `datanode-2` | `datanode-2:9001` (gRPC) | Internal Compose network only | `datanode-2-data`            |
+| `datanode-3` | `datanode-3:9002` (gRPC) | Internal Compose network only | `datanode-3-data`            |
+| `datanode-4` | `datanode-4:9003` (gRPC) | Internal Compose network only | `datanode-4-data`            |
+| `client`     | Uses service DNS names   | Not published                 | `client-home`, `client-logs` |
 
 The REST port is published to the host for health checks and API tools. The DataNode gRPC ports are intentionally internal: the MetaNode returns the DataNode addresses to the client, so a native client running on the host would not resolve the container-only names. Use the Compose client for an end-to-end Docker run, or change the advertised addresses and networking deliberately if you need host-native clients.
 
 ### Environment variables
 
-| Variable | Used by | Meaning |
-|---|---|---|
-| `METANODE_ID` | MetaNode | Node identity; Compose uses `MetaNode-1` |
-| `METANODE_PORT` | MetaNode | HTTP listening port; Compose uses `8080` |
-| `METANODE_DATA_DIR` | MetaNode/reset utility | Directory that contains `state.json` |
-| `METANODE_STATE_PATH` | MetaNode/reset utility | Optional exact path to `state.json`; takes precedence over the data directory |
-| `METANODE_SHARED_DIR` | MetaNode/reset utility | Optional shared directory used for HA state and coordination; not enabled in the default Compose stack |
-| `METANODE_JWT_SECRET` | MetaNode | Signs and validates user session tokens |
-| `DFSHA_CAPABILITY_SECRET` | MetaNode and DataNodes | Validates block-access capabilities |
-| `DFSHA_CLUSTER_SECRET` | MetaNode and DataNodes | Authenticates internal node-to-node requests |
-| `DFSHA_DATANODE_ID` | DataNode | Unique node ID, e.g. `datanode-1` |
-| `DFSHA_DATANODE_ADDR` | DataNode | gRPC bind address, e.g. `:9000` |
-| `DFSHA_DATANODE_ADVERTISE_ADDR` | DataNode | Address returned to clients/other nodes; must be reachable from them |
-| `DFSHA_DATANODE_DIR` | DataNode | Local directory where block files are stored |
-| `DFSHA_DATANODE_KEY` | DataNode | 64-character hexadecimal AES-256 key for encryption at rest |
-| `DFSHA_METANODE_URL` | DataNode and client | MetaNode REST base URL; in Compose, use `http://metanode:8080` |
-| `METANODE_BLOCK_SIZE` | MetaNode | Optional block-size override; default is 1 MiB |
+| Variable                        | Used by                | Meaning                                                                                                |
+| ------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `METANODE_ID`                   | MetaNode               | Node identity; Compose uses `MetaNode-1`                                                               |
+| `METANODE_PORT`                 | MetaNode               | HTTP listening port; Compose uses `8080`                                                               |
+| `METANODE_DATA_DIR`             | MetaNode/reset utility | Directory that contains `state.json`                                                                   |
+| `METANODE_STATE_PATH`           | MetaNode/reset utility | Optional exact path to `state.json`; takes precedence over the data directory                          |
+| `METANODE_SHARED_DIR`           | MetaNode/reset utility | Optional shared directory used for HA state and coordination; not enabled in the default Compose stack |
+| `METANODE_JWT_SECRET`           | MetaNode               | Signs and validates user session tokens                                                                |
+| `DFSHA_CAPABILITY_SECRET`       | MetaNode and DataNodes | Validates block-access capabilities                                                                    |
+| `DFSHA_CLUSTER_SECRET`          | MetaNode and DataNodes | Authenticates internal node-to-node requests                                                           |
+| `DFSHA_DATANODE_ID`             | DataNode               | Unique node ID, e.g. `datanode-1`                                                                      |
+| `DFSHA_DATANODE_ADDR`           | DataNode               | gRPC bind address, e.g. `:9000`                                                                        |
+| `DFSHA_DATANODE_ADVERTISE_ADDR` | DataNode               | Address returned to clients/other nodes; must be reachable from them                                   |
+| `DFSHA_DATANODE_DIR`            | DataNode               | Local directory where block files are stored                                                           |
+| `DFSHA_DATANODE_KEY`            | DataNode               | 64-character hexadecimal AES-256 key for encryption at rest                                            |
+| `DFSHA_METANODE_URL`            | DataNode and client    | MetaNode REST base URL; in Compose, use `http://metanode:8080`                                         |
+| `METANODE_BLOCK_SIZE`           | MetaNode               | Optional block-size override; default is 1 MiB                                                         |
 
 In Docker Compose, the actual block store and `state.json` live in named volumes rather than in the image layer. This makes them survive container replacement and `docker compose down` (without `--volumes`).
 
@@ -276,14 +283,14 @@ In Docker Compose, the actual block store and `state.json` live in named volumes
 
 ### Where data lives
 
-| Data | Default Compose location | Notes |
-|---|---|---|
-| MetaNode state | `metanode-data` volume mounted at `/var/lib/dfsha/metanode` | `state.json` is under `/var/lib/dfsha/metanode/MetaNode-1/` |
-| DataNode 1 blocks | `datanode-1-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 1 |
-| DataNode 2 blocks | `datanode-2-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 2 |
-| DataNode 3 blocks | `datanode-3-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 3 |
-| DataNode 4 blocks | `datanode-4-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 4 |
-| Client shell logs | `client-logs` volume mounted at `/app/logs` | Persists the CLI log between one-off client runs |
+| Data              | Default Compose location                                    | Notes                                                       |
+| ----------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| MetaNode state    | `metanode-data` volume mounted at `/var/lib/dfsha/metanode` | `state.json` is under `/var/lib/dfsha/metanode/MetaNode-1/` |
+| DataNode 1 blocks | `datanode-1-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 1                          |
+| DataNode 2 blocks | `datanode-2-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 2                          |
+| DataNode 3 blocks | `datanode-3-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 3                          |
+| DataNode 4 blocks | `datanode-4-data` volume mounted at `/var/lib/dfsha/blocks` | Independent storage for DataNode 4                          |
+| Client shell logs | `client-logs` volume mounted at `/app/logs`                 | Persists the CLI log between one-off client runs            |
 
 The MetaNode snapshot includes the catalog of files and blocks, users and password hashes, directories, registered DataNodes, and pending block-deletion commands. DataNodes store block contents on disk independently from the MetaNode.
 
