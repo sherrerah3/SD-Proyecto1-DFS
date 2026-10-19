@@ -191,8 +191,10 @@ const (
 )
 
 type putInitRequest struct {
-	Path      string `json:"path"`
-	SizeBytes int64  `json:"size_bytes"`
+	Path       string `json:"path"`
+	SizeBytes  int64  `json:"size_bytes"`
+	LockID     string `json:"lock_id,omitempty"`
+	FenceToken uint64 `json:"fence_token,omitempty"`
 }
 
 type putBlock struct {
@@ -206,13 +208,30 @@ type putInitResponse struct {
 }
 
 type putCompleteRequest struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path       string `json:"path"`
+	SHA256     string `json:"sha256"`
+	LockID     string `json:"lock_id,omitempty"`
+	FenceToken uint64 `json:"fence_token,omitempty"`
 }
 
 // Put uploads a local file to DFSha.
 func (c *Client) Put(localPath, remotePath, token string) error {
-	return c.put(localPath, remotePath, token, nil)
+	return c.put(localPath, remotePath, token, nil, "", 0)
+}
+
+// PutWithLock uploads a file using a valid editing lease.
+func (c *Client) PutWithLock(
+	localPath, remotePath, token string,
+	lock FileLock,
+) error {
+	return c.put(
+		localPath,
+		remotePath,
+		token,
+		nil,
+		lock.LockID,
+		lock.FenceToken,
+	)
 }
 
 // PutVerbose uploads a file and reports which DataNodes stored each block.
@@ -220,10 +239,15 @@ func (c *Client) PutVerbose(localPath, remotePath, token string, output io.Write
 	if output == nil {
 		output = io.Discard
 	}
-	return c.put(localPath, remotePath, token, output)
+	return c.put(localPath, remotePath, token, output, "", 0)
 }
 
-func (c *Client) put(localPath, remotePath, token string, output io.Writer) error {
+func (c *Client) put(
+	localPath, remotePath, token string,
+	output io.Writer,
+	lockID string,
+	fenceToken uint64,
+) error {
 	info, err := os.Stat(localPath)
 	if err != nil {
 		return fmt.Errorf("cannot access local file: %w", err)
@@ -252,8 +276,10 @@ func (c *Client) put(localPath, remotePath, token string, output io.Writer) erro
 		"/files/put-init",
 		token,
 		putInitRequest{
-			Path:      remotePath,
-			SizeBytes: info.Size(),
+			Path:       remotePath,
+			SizeBytes:  info.Size(),
+			LockID:     lockID,
+			FenceToken: fenceToken,
 		},
 		&init,
 	); err != nil {
@@ -358,8 +384,10 @@ func (c *Client) put(localPath, remotePath, token string, output io.Writer) erro
 		"/files/put-complete",
 		token,
 		putCompleteRequest{
-			Path:   remotePath,
-			SHA256: hex.EncodeToString(fileHash.Sum(nil)),
+			Path:       remotePath,
+			SHA256:     hex.EncodeToString(fileHash.Sum(nil)),
+			LockID:     lockID,
+			FenceToken: fenceToken,
 		},
 		nil,
 	); err != nil {

@@ -22,7 +22,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.WriteHeader(status)
 	if body != nil {
 		if err := json.NewEncoder(w).Encode(body); err != nil {
-			log.Printf("error escribiendo respuesta: %v", err)
+			log.Printf("error writing response: %v", err)
 		}
 	}
 }
@@ -38,7 +38,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields() // rechaza campos que no esperamos
 	if err := dec.Decode(dst); err != nil {
-		writeError(w, http.StatusBadRequest, "JSON invalido")
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return false
 	}
 	return true
@@ -80,8 +80,8 @@ func statusFor(err error) int {
 func writeServiceError(w http.ResponseWriter, err error) {
 	status := statusFor(err)
 	if status == http.StatusInternalServerError {
-		log.Printf("error interno: %v", err)
-		writeError(w, status, "error interno del servidor")
+		log.Printf("internal server error: %v", err)
+		writeError(w, status, "internal server error")
 		return
 	}
 	writeError(w, status, err.Error())

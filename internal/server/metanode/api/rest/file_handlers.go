@@ -26,8 +26,10 @@ type blockDTO struct {
 // --- POST /files/put-init ---
 
 type putInitRequest struct {
-	Path      string `json:"path"`
-	SizeBytes int64  `json:"size_bytes"`
+	Path       string `json:"path"`
+	SizeBytes  int64  `json:"size_bytes"`
+	LockID     string `json:"lock_id,omitempty"`
+	FenceToken uint64 `json:"fence_token,omitempty"`
 }
 
 type putInitResponse struct {
@@ -44,7 +46,17 @@ func (srv *Server) handlePutInit(w http.ResponseWriter, r *http.Request) {
 	}
 	filePath, ok := cleanFilePath(req.Path)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida: debe ser absoluta, ej. /docs/a.txt")
+		writeError(w, http.StatusBadRequest, "invalid path: must be an absolute path, e.g. /docs/a.txt")
+		return
+	}
+
+	if err := srv.validateWriteLock(
+		username,
+		filePath,
+		req.LockID,
+		req.FenceToken,
+	); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 
@@ -73,8 +85,10 @@ func (srv *Server) handlePutInit(w http.ResponseWriter, r *http.Request) {
 // --- POST /files/put-complete ---
 
 type putCompleteRequest struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path       string `json:"path"`
+	SHA256     string `json:"sha256"`
+	LockID     string `json:"lock_id,omitempty"`
+	FenceToken uint64 `json:"fence_token,omitempty"`
 }
 
 func (srv *Server) handlePutComplete(w http.ResponseWriter, r *http.Request) {
@@ -84,9 +98,20 @@ func (srv *Server) handlePutComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	filePath, ok := cleanFilePath(req.Path)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida")
+		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
+
+	if err := srv.validateWriteLock(
+		usernameFrom(r),
+		filePath,
+		req.LockID,
+		req.FenceToken,
+	); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
 	if err := service.CompletePut(srv.store, usernameFrom(r), filePath, req.SHA256); err != nil {
 		writeServiceError(w, err)
 		return
@@ -108,7 +133,7 @@ func (srv *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	// PathValue entrega "docs/a.txt" (sin la barra inicial); se la devolvemos.
 	filePath, ok := cleanFilePath("/" + r.PathValue("path"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida")
+		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
 
@@ -147,7 +172,7 @@ type fileEntry struct {
 func (srv *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	dir, ok := cleanDirPath(r.URL.Query().Get("dir"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "directorio invalido")
+		writeError(w, http.StatusBadRequest, "invalid directory path")
 		return
 	}
 
@@ -163,7 +188,7 @@ func (srv *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	// Obtener los directorios hijos directos.
 	directories, err := srv.store.ListDirectories(username, dir)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "no se pudieron listar los directorios")
+		writeError(w, http.StatusInternalServerError, "directories could not be listed")
 		return
 	}
 
@@ -200,7 +225,7 @@ func (srv *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 func (srv *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	filePath, ok := cleanFilePath("/" + r.PathValue("path"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida")
+		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
 	if err := service.DeleteFile(srv.store, usernameFrom(r), filePath); err != nil {

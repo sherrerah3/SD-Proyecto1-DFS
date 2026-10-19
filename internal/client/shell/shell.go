@@ -25,6 +25,7 @@ func Run() {
 	handleClear(s, nil)
 
 	printBanner()
+	fmt.Println()
 
 	if err := checkSession(s); err != nil {
 		reportShellError(

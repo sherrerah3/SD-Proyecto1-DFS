@@ -22,7 +22,7 @@ func RequireClusterSecret(secret string, next http.HandlerFunc) http.HandlerFunc
 			next(w, r)
 			return
 		}
-		writeError(w, http.StatusUnauthorized, "secreto de clúster inválido")
+		writeError(w, http.StatusUnauthorized, "invalid cluster secret")
 	}
 }
 
@@ -43,7 +43,7 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || token == "" {
-			writeError(w, http.StatusUnauthorized, "falta el header Authorization: Bearer <token>")
+			writeError(w, http.StatusUnauthorized, "Authorization header missing: Bearer <token>")
 			return
 		}
 

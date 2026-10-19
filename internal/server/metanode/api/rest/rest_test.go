@@ -198,17 +198,17 @@ func TestPutCompleteDosVecesDa409(t *testing.T) {
 
 	init := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "/a.txt", "size_bytes": 1024})
 	if init.Code != http.StatusOK {
-		t.Fatalf("put-init devolvió %d", init.Code)
+		t.Fatalf("put-init yielded %d", init.Code)
 	}
 	sha := strings.Repeat("0", 64)
 	alcanzarQuorumAPI(t, h, init.Body.Bytes(), sha)
 	body := map[string]any{"path": "/a.txt", "sha256": sha}
 
 	if primero := do(t, h, "POST", "/files/put-complete", token, body); primero.Code != http.StatusNoContent {
-		t.Fatalf("primer put-complete devolvió %d", primero.Code)
+		t.Fatalf("first put-complete yielded %d", primero.Code)
 	}
 	segundo := do(t, h, "POST", "/files/put-complete", token, body)
 	if segundo.Code != http.StatusConflict {
-		t.Fatalf("segundo put-complete: código %d, se esperaba 409", segundo.Code)
+		t.Fatalf("second put-complete: status %d, expected 409", segundo.Code)
 	}
 }

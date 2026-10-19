@@ -23,7 +23,7 @@ func (srv *Server) handleRegisterDataNode(
 	}
 
 	if req.FreeBytes < 0 || req.BlockCount < 0 {
-		writeError(w, http.StatusBadRequest, "estado del datanode inválido")
+		writeError(w, http.StatusBadRequest, "invalid datanode status")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (srv *Server) handleDataNodeHeartbeat(
 	}
 
 	if req.DataNodeID == "" || req.FreeBytes < 0 || req.BlockCount < 0 {
-		writeError(w, http.StatusBadRequest, "heartbeat inválido")
+		writeError(w, http.StatusBadRequest, "invalid heartbeat")
 		return
 	}
 
@@ -103,7 +103,7 @@ func (srv *Server) handleReportBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BlockID == "" || req.DataNodeID == "" {
-		writeError(w, http.StatusBadRequest, "reporte de bloque inválido")
+		writeError(w, http.StatusBadRequest, "block yielded an invalid report")
 		return
 	}
 	if err := service.ReportBlockStored(srv.store, req.BlockID, req.DataNodeID, req.SHA256); err != nil {

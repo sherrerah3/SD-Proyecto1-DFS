@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -107,46 +108,45 @@ func handleGet(s *shell, args []string) bool {
 	return true
 }
 
-func handleOpen(s *shell, args []string) bool {
-	fmt.Printf(
-		errorNotImplemented,
-		commandOpen,
-	)
+func handleCat(s *shell, args []string) bool {
+	if len(args) != 1 {
+		fmt.Println("Usage: cat <remote-path>")
+		return true
+	}
 
-	fmt.Println()
+	remotePath := resolvePath(s.currentPath, args[0])
 
-	return true
-}
+	// Create a temporary directory for the downloaded file.
+	tempDir, err := os.MkdirTemp("", "dfsha-cat-*")
+	if err != nil {
+		fmt.Printf("Failed to create temporary directory: %v\n", err)
+		return true
+	}
+	defer os.RemoveAll(tempDir)
 
-func handleClose(s *shell, args []string) bool {
-	fmt.Printf(
-		errorNotImplemented,
-		commandClose,
-	)
+	localPath := filepath.Join(tempDir, path.Base(remotePath))
 
-	fmt.Println()
+	// Download the remote file.
+	if err := s.metanode.Get(
+		remotePath,
+		localPath,
+		s.session.Token,
+	); err != nil {
+		fmt.Printf("Failed to read remote file: %v\n", err)
+		return true
+	}
 
-	return true
-}
+	// Read the downloaded file.
+	content, err := os.ReadFile(localPath)
+	if err != nil {
+		fmt.Printf("Failed to read downloaded file: %v\n", err)
+		return true
+	}
 
-func handleRead(s *shell, args []string) bool {
-	fmt.Printf(
-		errorNotImplemented,
-		commandRead,
-	)
-
-	fmt.Println()
-
-	return true
-}
-
-func handleWrite(s *shell, args []string) bool {
-	fmt.Printf(
-		errorNotImplemented,
-		commandWrite,
-	)
-
-	fmt.Println()
+	// Print the contents without adding an extra newline.
+	if _, err := os.Stdout.Write(content); err != nil {
+		fmt.Printf("\nFailed to print file contents: %v\n", err)
+	}
 
 	return true
 }

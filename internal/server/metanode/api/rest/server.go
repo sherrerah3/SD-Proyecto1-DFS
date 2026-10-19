@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"sync"
 
 	"dfsha/internal/server/metanode/store"
 )
@@ -10,10 +11,16 @@ type Server struct {
 	store         store.Store
 	clusterSecret string
 	isLeader      func() bool // nil = siempre líder
+	lockMu        sync.Mutex
+	locks         map[string]*fileLock
+	nextFence     uint64
 }
 
 func NewServer(s store.Store) *Server {
-	return &Server{store: s}
+	return &Server{
+		store: s,
+		locks: make(map[string]*fileLock),
+	}
 }
 
 // SetClusterSecret fija el secreto de las rutas /internal/*.
@@ -47,6 +54,9 @@ func (srv *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /directories", RequireAuth(srv.handleCreateDirectory))
 	mux.HandleFunc("GET /directories/exists", RequireAuth(srv.handleDirectoryExists))
 	mux.HandleFunc("DELETE /directories", RequireAuth(srv.handleDeleteDirectory))
+	mux.HandleFunc("POST /files/lock", RequireAuth(srv.handleLock))
+	mux.HandleFunc("POST /files/lock/heartbeat", RequireAuth(srv.handleLockHeartbeat))
+	mux.HandleFunc("POST /files/lock/unlock", RequireAuth(srv.handleUnlock))
 
 	// Endpoint para checkear si el token actual del usuario aún sirve
 	mux.HandleFunc("GET /auth/session", RequireAuth(srv.handleValidateSession))
@@ -67,7 +77,7 @@ func (srv *Server) Routes() http.Handler {
 
 func (srv *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if !srv.leader() {
-		writeError(w, http.StatusServiceUnavailable, "no soy el líder")
+		writeError(w, http.StatusServiceUnavailable, "i am not leader")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "leader"})
