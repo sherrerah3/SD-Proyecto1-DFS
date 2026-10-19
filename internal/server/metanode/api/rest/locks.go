@@ -36,8 +36,11 @@ func lockKey(username, filePath string) string {
 	return username + "\x00" + path.Clean(filePath)
 }
 
-// handleLock acquires an exclusive lease for an existing remote file.
-func (srv *Server) handleLock(w http.ResponseWriter, r *http.Request) {
+// handleLock adquiere un bloqueo exclusivo sobre un archivo existente.
+func (srv *Server) handleLock(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	username := usernameFrom(r)
 
 	var req lockRequest
@@ -51,8 +54,11 @@ func (srv *Server) handleLock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Do not lock a nonexistent file.
-	if _, _, err := service.ResolveGet(srv.store, username, filePath); err != nil {
+	if _, _, err := service.ResolveGet(
+		srv.store,
+		username,
+		filePath,
+	); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -63,8 +69,13 @@ func (srv *Server) handleLock(w http.ResponseWriter, r *http.Request) {
 	srv.lockMu.Lock()
 	defer srv.lockMu.Unlock()
 
-	if current, exists := srv.locks[key]; exists && now.Before(current.ExpiresAt) {
-		writeError(w, http.StatusConflict, "file is already being edited")
+	if current, exists := srv.locks[key]; exists &&
+		now.Before(current.ExpiresAt) {
+		writeError(
+			w,
+			http.StatusConflict,
+			"file is already being edited",
+		)
 		return
 	}
 
@@ -77,6 +88,7 @@ func (srv *Server) handleLock(w http.ResponseWriter, r *http.Request) {
 		FenceToken: srv.nextFence,
 		ExpiresAt:  now.Add(fileLockTTL),
 	}
+
 	srv.locks[key] = lock
 
 	writeJSON(w, http.StatusOK, lockResponse{
@@ -86,8 +98,11 @@ func (srv *Server) handleLock(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLockHeartbeat renews an active lease.
-func (srv *Server) handleLockHeartbeat(w http.ResponseWriter, r *http.Request) {
+// handleLockHeartbeat renueva un bloqueo vigente.
+func (srv *Server) handleLockHeartbeat(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	username := usernameFrom(r)
 
 	var req lockRequest
@@ -122,8 +137,11 @@ func (srv *Server) handleLockHeartbeat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleUnlock releases the lease only if the caller still owns it.
-func (srv *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
+// handleUnlock libera el bloqueo si el cliente todavía es su propietario.
+func (srv *Server) handleUnlock(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	username := usernameFrom(r)
 
 	var req lockRequest
@@ -142,6 +160,7 @@ func (srv *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 
 	key := lockKey(username, filePath)
 	lock, exists := srv.locks[key]
+
 	if !exists {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -149,7 +168,21 @@ func (srv *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 
 	if lock.ID != req.LockID ||
 		lock.FenceToken != req.FenceToken {
-		writeError(w, http.StatusConflict, "file lock belongs to another editor")
+		writeError(
+			w,
+			http.StatusConflict,
+			"file lock belongs to another editor",
+		)
+		return
+	}
+
+	// Limpia la actualización parcial antes de permitir otra edición.
+	if err := service.AbortPutForUpdate(
+		srv.store,
+		username,
+		filePath,
+	); err != nil {
+		writeServiceError(w, err)
 		return
 	}
 
@@ -157,8 +190,7 @@ func (srv *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// validateWriteLock prevents a regular PUT from modifying a locked file.
-// A locked PUT must present the current lock ID and fencing token.
+// validateWriteLock impide modificar un archivo bloqueado sin su token válido.
 func (srv *Server) validateWriteLock(
 	username, filePath, lockID string,
 	fenceToken uint64,
@@ -179,9 +211,11 @@ func (srv *Server) validateWriteLock(
 
 	if !now.Before(lock.ExpiresAt) {
 		delete(srv.locks, key)
+
 		if lockID != "" {
 			return errFileLockLost
 		}
+
 		return nil
 	}
 

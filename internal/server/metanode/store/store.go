@@ -2,15 +2,20 @@ package store
 
 import "errors"
 
-// ErrDataNodeNotFound distingue "no existe" de otros fallos del store
 var ErrDataNodeNotFound = errors.New("datanode no encontrado")
 
-// Store define el contrato de persistencia de metadatos, seguro para uso concurrente.
 type Store interface {
-	// Archivos (por dueño)
+	// Archivos
 	CreateFile(f FileMetadata) error
 	GetFile(owner, filePath string) (FileMetadata, error)
 	UpdateFile(f FileMetadata) error
+
+	// Sustituye la metadata del archivo de forma atómica.
+	// Devuelve la metadata anterior para liberar sus bloques tras el commit.
+	ReplaceFileWithStaged(
+		owner, targetPath, stagingPath string,
+	) (FileMetadata, error)
+
 	DeleteFile(owner, filePath string) error
 	ListFiles(owner, dirPath string) ([]FileMetadata, error)
 
@@ -18,7 +23,6 @@ type Store interface {
 	SaveBlockLocation(b BlockMetadata) error
 	GetBlockLocation(blockID string) (BlockMetadata, error)
 	DeleteBlockLocation(blockID string) error
-	// ReportBlock registra que dataNodeID almacenó el bloque
 	ReportBlock(blockID, dataNodeID, hash string) error
 
 	// DataNodes
@@ -32,8 +36,10 @@ type Store interface {
 	CreateUser(u UserInfo) error
 	GetUser(username string) (UserInfo, error)
 	UpdateQuotaUsed(username string, deltaBytes int64) error
-	// ReserveQuota suma el delta solo si no supera maxBytes
-	ReserveQuota(username string, deltaBytes, maxBytes int64) error
+	ReserveQuota(
+		username string,
+		deltaBytes, maxBytes int64,
+	) error
 	CountUsers() int
 
 	// Directorios
