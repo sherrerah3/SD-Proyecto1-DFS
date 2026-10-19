@@ -1,0 +1,87 @@
+# Activar HA sin modificar el modo predeterminado:
+# docker compose -f compose.yaml -f compose.ha.yaml --profile ha up --build -d --scale metanode-replica=1
+# Añadir más MetaNodes cambiando el valor de --scale (por ejemplo, 3 para cuatro en total).
+services:
+  metanode:
+    environment:
+      METANODE_SHARED_DIR: /var/lib/dfsha/metanode/MetaNode-1
+
+  # Réplicas escalables. Cada contenedor obtiene un ID distinto de su hostname Docker.
+  metanode-replica:
+    image: dfsha:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["metanode"]
+    profiles: ["ha"]
+    restart: unless-stopped
+    init: true
+    environment:
+      METANODE_ID_PREFIX: MetaNode
+      METANODE_PORT: "8080"
+      METANODE_SHARED_DIR: /var/lib/dfsha/metanode/MetaNode-1
+      METANODE_JWT_SECRET: ${METANODE_JWT_SECRET:?Set METANODE_JWT_SECRET in .env}
+      DFSHA_CAPABILITY_SECRET: ${DFSHA_CAPABILITY_SECRET:?Set DFSHA_CAPABILITY_SECRET in .env}
+      DFSHA_CLUSTER_SECRET: ${DFSHA_CLUSTER_SECRET:?Set DFSHA_CLUSTER_SECRET in .env}
+    volumes:
+      - metanode-data:/var/lib/dfsha/metanode
+    depends_on:
+      metanode:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 20s
+
+  # Proxy de entrada: solo acepta backends que respondan OK a /health (solo líder).
+  metanode-proxy:
+    image: haproxy:3.2-alpine
+    profiles: ["ha"]
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./docker/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      metanode:
+        condition: service_healthy
+
+  # En modo HA, todos los DataNodes deben reportarse al proxy, nunca al nodo fijo.
+  datanode-1:
+    depends_on:
+      metanode-proxy:
+        condition: service_started
+    environment:
+      DFSHA_METANODE_URL: http://metanode-proxy:8080
+  datanode-2:
+    depends_on:
+      metanode-proxy:
+        condition: service_started
+    environment:
+      DFSHA_METANODE_URL: http://metanode-proxy:8080
+  datanode-3:
+    depends_on:
+      metanode-proxy:
+        condition: service_started
+    environment:
+      DFSHA_METANODE_URL: http://metanode-proxy:8080
+  datanode-4:
+    depends_on:
+      metanode-proxy:
+        condition: service_started
+    environment:
+      DFSHA_METANODE_URL: http://metanode-proxy:8080
+  client:
+    depends_on:
+      metanode-proxy:
+        condition: service_started
+    environment:
+      DFSHA_METANODE_URL: http://metanode-proxy:8080
+  reset-metadata:
+    environment:
+      METANODE_SHARED_DIR: /var/lib/dfsha/metanode/MetaNode-1
+    volumes:
+      - metanode-data:/var/lib/dfsha/metanode

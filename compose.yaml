@@ -1,0 +1,133 @@
+name: dfsha
+
+x-dfsha-image: &dfsha-image
+  image: dfsha:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+x-datanode-common-environment: &datanode-common-environment
+  DFSHA_METANODE_URL: http://metanode:8080
+  DFSHA_CAPABILITY_SECRET: ${DFSHA_CAPABILITY_SECRET:?Set DFSHA_CAPABILITY_SECRET in .env}
+  DFSHA_CLUSTER_SECRET: ${DFSHA_CLUSTER_SECRET:?Set DFSHA_CLUSTER_SECRET in .env}
+  DFSHA_DATANODE_KEY: ${DFSHA_DATANODE_KEY:?Set DFSHA_DATANODE_KEY in .env}
+
+x-datanode-common: &datanode-common
+  <<: *dfsha-image
+  command: ["datanode"]
+  restart: unless-stopped
+  init: true
+  depends_on:
+    metanode:
+      condition: service_healthy
+
+services:
+  metanode:
+    <<: *dfsha-image
+    command: ["metanode"]
+    restart: unless-stopped
+    init: true
+    environment:
+      METANODE_ID: MetaNode-1
+      METANODE_PORT: "8080"
+      METANODE_DATA_DIR: /var/lib/dfsha/metanode/MetaNode-1
+      METANODE_JWT_SECRET: ${METANODE_JWT_SECRET:?Set METANODE_JWT_SECRET in .env}
+      DFSHA_CAPABILITY_SECRET: ${DFSHA_CAPABILITY_SECRET:?Set DFSHA_CAPABILITY_SECRET in .env}
+      DFSHA_CLUSTER_SECRET: ${DFSHA_CLUSTER_SECRET:?Set DFSHA_CLUSTER_SECRET in .env}
+    ports:
+      - "8080:8080"
+    volumes:
+      - metanode-data:/var/lib/dfsha/metanode
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 20s
+
+  datanode-1:
+    <<: *datanode-common
+    environment:
+      <<: *datanode-common-environment
+      DFSHA_DATANODE_ID: datanode-1
+      DFSHA_DATANODE_ADDR: ":9000"
+      DFSHA_DATANODE_ADVERTISE_ADDR: datanode-1:9000
+      DFSHA_DATANODE_DIR: /var/lib/dfsha/blocks
+    volumes:
+      - datanode-1-data:/var/lib/dfsha/blocks
+
+  datanode-2:
+    <<: *datanode-common
+    environment:
+      <<: *datanode-common-environment
+      DFSHA_DATANODE_ID: datanode-2
+      DFSHA_DATANODE_ADDR: ":9001"
+      DFSHA_DATANODE_ADVERTISE_ADDR: datanode-2:9001
+      DFSHA_DATANODE_DIR: /var/lib/dfsha/blocks
+    volumes:
+      - datanode-2-data:/var/lib/dfsha/blocks
+
+  datanode-3:
+    <<: *datanode-common
+    environment:
+      <<: *datanode-common-environment
+      DFSHA_DATANODE_ID: datanode-3
+      DFSHA_DATANODE_ADDR: ":9002"
+      DFSHA_DATANODE_ADVERTISE_ADDR: datanode-3:9002
+      DFSHA_DATANODE_DIR: /var/lib/dfsha/blocks
+    volumes:
+      - datanode-3-data:/var/lib/dfsha/blocks
+
+  datanode-4:
+    <<: *datanode-common
+    environment:
+      <<: *datanode-common-environment
+      DFSHA_DATANODE_ID: datanode-4
+      DFSHA_DATANODE_ADDR: ":9003"
+      DFSHA_DATANODE_ADVERTISE_ADDR: datanode-4:9003
+      DFSHA_DATANODE_DIR: /var/lib/dfsha/blocks
+    volumes:
+      - datanode-4-data:/var/lib/dfsha/blocks
+
+  client:
+    <<: *dfsha-image
+    command: ["client"]
+    profiles: ["client"]
+    stdin_open: true
+    tty: true
+    environment:
+      DFSHA_METANODE_URL: http://metanode:8080
+      EDITOR: ${DFSHA_EDITOR:-nano}
+      VISUAL: ${DFSHA_EDITOR:-nano}
+      TERM: ${TERM:-xterm-256color}
+    volumes:
+      - client-home:/home/dfsha
+      - client-logs:/app/logs
+    depends_on:
+      metanode:
+        condition: service_healthy
+
+  reset-metadata:
+    image: python:3.12-alpine
+    profiles: ["tools"]
+    entrypoint: ["python", "/workspace/scripts/empty_database.py"]
+    command: []
+    working_dir: /workspace
+    environment:
+      METANODE_ID: MetaNode-1
+      METANODE_DATA_DIR: /var/lib/dfsha/metanode/MetaNode-1
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+      - metanode-data:/var/lib/dfsha/metanode
+    stdin_open: true
+    tty: true
+
+volumes:
+  metanode-data:
+  datanode-1-data:
+  datanode-2-data:
+  datanode-3-data:
+  datanode-4-data:
+  client-home:
+  client-logs:
