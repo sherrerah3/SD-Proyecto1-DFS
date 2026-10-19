@@ -12,7 +12,7 @@ DFSHA is a distributed file-storage project written in Go. A **MetaNode** manage
 
 This README describes the architecture that is implemented in this repository and provides a Docker Compose quick start for Windows, Linux, and macOS.
 
-> **Status and scope:** the default Docker Compose deployment runs one MetaNode and four DataNodes. It is a single-MetaNode development setup, not a production high-availability deployment. Automatic repair/re-replication of lost block contents is not currently guaranteed when a DataNode's disk is lost.
+> **Status and scope:** the default Docker Compose deployment runs one MetaNode and four DataNodes (four and not three so we can test what happens when we can take one datanode down). It is a single-MetaNode development setup, not a production high-availability deployment. Automatic repair/re-replication of lost block contents is not currently guaranteed when a DataNode's disk is lost.
 
 ## Contents
 
