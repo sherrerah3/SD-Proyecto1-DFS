@@ -11,7 +11,7 @@ func TestCreateFile(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "crea un archivo nuevo",
+			name:    "creates a new file",
 			input:   FileMetadata{Name: "b.txt", Path: "/b.txt", Owner: "ana"},
 			wantErr: false,
 		},
@@ -26,7 +26,7 @@ func TestCreateFile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.CreateFile(existing); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			err := s.CreateFile(tc.input)
@@ -45,15 +45,15 @@ func TestGetFile(t *testing.T) {
 		path    string
 		wantErr bool
 	}{
-		{name: "obtiene un archivo existente", path: "/a.txt", wantErr: false},
-		{name: "error si no existe", path: "/no.txt", wantErr: true},
+		{name: "gets an existing file", path: "/a.txt", wantErr: false},
+		{name: "error when missing", path: "/no.txt", wantErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.CreateFile(stored); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			got, err := s.GetFile("ana", tc.path)
@@ -62,7 +62,7 @@ func TestGetFile(t *testing.T) {
 			}
 
 			if !tc.wantErr && got.Path != stored.Path {
-				t.Fatalf("GetFile() devolvió path %q, se esperaba %q", got.Path, stored.Path)
+				t.Fatalf("GetFile() returned path %q, expected %q", got.Path, stored.Path)
 			}
 		})
 	}
@@ -76,15 +76,15 @@ func TestDeleteFile(t *testing.T) {
 		path    string
 		wantErr bool
 	}{
-		{name: "borra un archivo existente", path: "/a.txt", wantErr: false},
-		{name: "error al borrar inexistente", path: "/no.txt", wantErr: true},
+		{name: "deletes an existing file", path: "/a.txt", wantErr: false},
+		{name: "error deleting a missing file", path: "/no.txt", wantErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.CreateFile(stored); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			err := s.DeleteFile("ana", tc.path)
@@ -94,7 +94,7 @@ func TestDeleteFile(t *testing.T) {
 
 			if !tc.wantErr {
 				if _, err := s.GetFile("ana", tc.path); err == nil {
-					t.Fatalf("el archivo %q debería haberse borrado", tc.path)
+					t.Fatalf("file %q should have been deleted", tc.path)
 				}
 			}
 		})
@@ -114,10 +114,10 @@ func TestListFiles(t *testing.T) {
 		dirPath   string
 		wantCount int
 	}{
-		{name: "lista archivos de un directorio", owner: "ana", dirPath: "/home/ana", wantCount: 2},
-		{name: "lista archivos de otro directorio", owner: "bob", dirPath: "/home/bob", wantCount: 1},
-		{name: "no ve archivos de otro usuario", owner: "ana", dirPath: "/home/bob", wantCount: 0},
-		{name: "directorio sin archivos", owner: "ana", dirPath: "/tmp", wantCount: 0},
+		{name: "lists files in a directory", owner: "ana", dirPath: "/home/ana", wantCount: 2},
+		{name: "lists files from another directory", owner: "bob", dirPath: "/home/bob", wantCount: 1},
+		{name: "does not see another user's files", owner: "ana", dirPath: "/home/bob", wantCount: 0},
+		{name: "directory without files", owner: "ana", dirPath: "/tmp", wantCount: 0},
 	}
 
 	for _, tc := range tests {
@@ -125,17 +125,17 @@ func TestListFiles(t *testing.T) {
 			s := NewMemoryStore()
 			for _, f := range seed {
 				if err := s.CreateFile(f); err != nil {
-					t.Fatalf("preparación falló: %v", err)
+					t.Fatalf("setup failed: %v", err)
 				}
 			}
 
 			got, err := s.ListFiles(tc.owner, tc.dirPath)
 			if err != nil {
-				t.Fatalf("ListFiles() error inesperado: %v", err)
+				t.Fatalf("ListFiles() error unexpected: %v", err)
 			}
 
 			if len(got) != tc.wantCount {
-				t.Fatalf("ListFiles() devolvió %d archivos, se esperaban %d", len(got), tc.wantCount)
+				t.Fatalf("ListFiles() returned %d files, expected %d", len(got), tc.wantCount)
 			}
 		})
 	}
@@ -149,15 +149,15 @@ func TestSaveAndGetBlockLocation(t *testing.T) {
 		blockID string
 		wantErr bool
 	}{
-		{name: "obtiene un bloque guardado", blockID: "blk-1", wantErr: false},
-		{name: "error si el bloque no existe", blockID: "blk-x", wantErr: true},
+		{name: "gets a stored block", blockID: "blk-1", wantErr: false},
+		{name: "error when the block does not exist", blockID: "blk-x", wantErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.SaveBlockLocation(block); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			got, err := s.GetBlockLocation(tc.blockID)
@@ -166,7 +166,7 @@ func TestSaveAndGetBlockLocation(t *testing.T) {
 			}
 
 			if !tc.wantErr && len(got.DataNodes) != len(block.DataNodes) {
-				t.Fatalf("GetBlockLocation() devolvió %d datanodes, se esperaban %d", len(got.DataNodes), len(block.DataNodes))
+				t.Fatalf("GetBlockLocation() returned %d DataNodes, expected %d", len(got.DataNodes), len(block.DataNodes))
 			}
 		})
 	}
@@ -176,20 +176,20 @@ func TestSaveBlockLocationUpsert(t *testing.T) {
 	s := NewMemoryStore()
 
 	if err := s.SaveBlockLocation(BlockMetadata{BlockID: "blk-1", DataNodes: []string{"dn-1"}}); err != nil {
-		t.Fatalf("primer guardado falló: %v", err)
+		t.Fatalf("first save failed: %v", err)
 	}
 
 	if err := s.SaveBlockLocation(BlockMetadata{BlockID: "blk-1", DataNodes: []string{"dn-1", "dn-2"}}); err != nil {
-		t.Fatalf("segundo guardado (upsert) falló: %v", err)
+		t.Fatalf("second save (upsert) failed: %v", err)
 	}
 
 	got, err := s.GetBlockLocation("blk-1")
 	if err != nil {
-		t.Fatalf("GetBlockLocation() error inesperado: %v", err)
+		t.Fatalf("GetBlockLocation() error unexpected: %v", err)
 	}
 
 	if len(got.DataNodes) != 2 {
-		t.Fatalf("el upsert no actualizó el bloque: datanodes = %d, se esperaban 2", len(got.DataNodes))
+		t.Fatalf("upsert did not update the block: datanodes = %d, expected 2", len(got.DataNodes))
 	}
 }
 
@@ -197,17 +197,17 @@ func TestRegisterDataNode(t *testing.T) {
 	s := NewMemoryStore()
 
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1", Address: "127.0.0.1:9000"}); err != nil {
-		t.Fatalf("registro nuevo falló: %v", err)
+		t.Fatalf("new registration failed: %v", err)
 	}
 
 	// Un re-registro con el mismo ID sobrescribe en vez de fallar.
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1", Address: "127.0.0.1:9999"}); err != nil {
-		t.Fatalf("re-registro falló: %v", err)
+		t.Fatalf("re-registration failed: %v", err)
 	}
 
 	nodes, _ := s.ListAliveDataNodes()
 	if len(nodes) != 1 {
-		t.Fatalf("se esperaba 1 datanode, hay %d", len(nodes))
+		t.Fatalf("expected 1 datanode, got %d", len(nodes))
 	}
 	if nodes[0].Address != "127.0.0.1:9999" {
 		t.Fatalf("el re-registro no sobrescribió la dirección: %q", nodes[0].Address)
@@ -219,20 +219,20 @@ func TestRegisterDataNodeMarksAlive(t *testing.T) {
 
 	// Se registra con Alive=false a propósito; el store debe forzarlo a true.
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1", Alive: false}); err != nil {
-		t.Fatalf("RegisterDataNode() error inesperado: %v", err)
+		t.Fatalf("RegisterDataNode() error unexpected: %v", err)
 	}
 
 	alive, err := s.ListAliveDataNodes()
 	if err != nil {
-		t.Fatalf("ListAliveDataNodes() error inesperado: %v", err)
+		t.Fatalf("ListAliveDataNodes() error unexpected: %v", err)
 	}
 
 	if len(alive) != 1 {
-		t.Fatalf("se esperaba 1 datanode vivo, se obtuvieron %d", len(alive))
+		t.Fatalf("expected 1 alive DataNode, got %d", len(alive))
 	}
 
 	if alive[0].LastHeartbeat.IsZero() {
-		t.Fatalf("RegisterDataNode() debió fijar LastHeartbeat")
+		t.Fatalf("RegisterDataNode() should have set LastHeartbeat")
 	}
 }
 
@@ -250,7 +250,7 @@ func TestUpdateHeartbeat(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1"}); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			err := s.UpdateHeartbeat(tc.id, 500)
@@ -272,19 +272,19 @@ func TestListAliveDataNodes(t *testing.T) {
 	s := NewMemoryStore()
 
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1"}); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-2"}); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	nodes, err := s.ListAliveDataNodes()
 	if err != nil {
-		t.Fatalf("ListAliveDataNodes() error inesperado: %v", err)
+		t.Fatalf("ListAliveDataNodes() error unexpected: %v", err)
 	}
 
 	if len(nodes) != 2 {
-		t.Fatalf("se esperaban 2 datanodes vivos, se obtuvieron %d", len(nodes))
+		t.Fatalf("expected 2 alive DataNodes, got %d", len(nodes))
 	}
 }
 
@@ -296,7 +296,7 @@ func TestCreateUser(t *testing.T) {
 		input   UserInfo
 		wantErr bool
 	}{
-		{name: "crea un usuario nuevo", input: UserInfo{Username: "bob", PasswordHash: "hash"}, wantErr: false},
+		{name: "creates a new user", input: UserInfo{Username: "bob", PasswordHash: "hash"}, wantErr: false},
 		{name: "rechaza un username duplicado", input: existing, wantErr: true},
 	}
 
@@ -304,7 +304,7 @@ func TestCreateUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.CreateUser(existing); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			err := s.CreateUser(tc.input)
@@ -323,15 +323,15 @@ func TestGetUser(t *testing.T) {
 		username string
 		wantErr  bool
 	}{
-		{name: "obtiene un usuario existente", username: "ana", wantErr: false},
-		{name: "error si el usuario no existe", username: "nadie", wantErr: true},
+		{name: "gets an existing user", username: "ana", wantErr: false},
+		{name: "error when the user does not exist", username: "nadie", wantErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.CreateUser(stored); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			got, err := s.GetUser(tc.username)
@@ -340,7 +340,7 @@ func TestGetUser(t *testing.T) {
 			}
 
 			if !tc.wantErr && got.Username != stored.Username {
-				t.Fatalf("GetUser() devolvió %q, se esperaba %q", got.Username, stored.Username)
+				t.Fatalf("GetUser() returned %q, expected %q", got.Username, stored.Username)
 			}
 		})
 	}
@@ -354,16 +354,16 @@ func TestUpdateQuotaUsed(t *testing.T) {
 		wantUsed int64
 		wantErr  bool
 	}{
-		{name: "suma cuota", username: "ana", delta: 100, wantUsed: 100, wantErr: false},
-		{name: "resta cuota", username: "ana", delta: -40, wantUsed: -40, wantErr: false},
-		{name: "error si el usuario no existe", username: "nadie", delta: 10, wantErr: true},
+		{name: "increase quota", username: "ana", delta: 100, wantUsed: 100, wantErr: false},
+		{name: "decrease quota", username: "ana", delta: -40, wantUsed: -40, wantErr: false},
+		{name: "error when the user does not exist", username: "nadie", delta: 10, wantErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			if err := s.CreateUser(UserInfo{Username: "ana", PasswordHash: "hash"}); err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			err := s.UpdateQuotaUsed(tc.username, tc.delta)
@@ -374,7 +374,7 @@ func TestUpdateQuotaUsed(t *testing.T) {
 			if !tc.wantErr {
 				u, _ := s.GetUser(tc.username)
 				if u.QuotaUsedBytes != tc.wantUsed {
-					t.Fatalf("QuotaUsedBytes = %d, se esperaba %d", u.QuotaUsedBytes, tc.wantUsed)
+					t.Fatalf("QuotaUsedBytes = %d, expected %d", u.QuotaUsedBytes, tc.wantUsed)
 				}
 			}
 		})
@@ -385,41 +385,41 @@ func TestListDataNodes(t *testing.T) {
 	s := NewMemoryStore()
 
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1"}); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-2"}); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 	// Marcar uno como muerto no debe excluirlo de ListDataNodes.
 	if err := s.SetDataNodeAlive("dn-2", false); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	all, err := s.ListDataNodes()
 	if err != nil {
-		t.Fatalf("ListDataNodes() error inesperado: %v", err)
+		t.Fatalf("ListDataNodes() error unexpected: %v", err)
 	}
 	if len(all) != 2 {
-		t.Fatalf("ListDataNodes() devolvió %d, se esperaban 2 (vivos y muertos)", len(all))
+		t.Fatalf("ListDataNodes() returned %d, expected 2 (alive and dead)", len(all))
 	}
 }
 
 func TestSetDataNodeAlive(t *testing.T) {
 	s := NewMemoryStore()
 	if err := s.RegisterDataNode(DataNodeInfo{ID: "dn-1"}); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	if err := s.SetDataNodeAlive("dn-1", false); err != nil {
-		t.Fatalf("SetDataNodeAlive() error inesperado: %v", err)
+		t.Fatalf("SetDataNodeAlive() error unexpected: %v", err)
 	}
 
 	alive, _ := s.ListAliveDataNodes()
 	if len(alive) != 0 {
-		t.Fatalf("tras marcarlo muerto no debería haber nodos vivos, hay %d", len(alive))
+		t.Fatalf("after marking it dead, there should be no alive nodes, got %d", len(alive))
 	}
 
-	if err := s.SetDataNodeAlive("inexistente", false); err != ErrDataNodeNotFound {
-		t.Fatalf("error = %v, se esperaba ErrDataNodeNotFound", err)
+	if err := s.SetDataNodeAlive("missing", false); err != ErrDataNodeNotFound {
+		t.Fatalf("error = %v, expected ErrDataNodeNotFound", err)
 	}
 }

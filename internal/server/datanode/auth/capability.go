@@ -13,7 +13,7 @@ const (
 	OpGet = "get"
 )
 
-var ErrInvalidCapability = errors.New("capability token inválido o expirado")
+var ErrInvalidCapability = errors.New("invalid or expired capability token")
 
 // Capability es el contenido útil de un token ya validado.
 type Capability struct {

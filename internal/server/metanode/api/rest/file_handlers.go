@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"log"
 	"net/http"
 	"path"
 	"time"
@@ -50,7 +51,7 @@ func (srv *Server) handlePutInit(
 		writeError(
 			w,
 			http.StatusBadRequest,
-			"ruta invalida: debe ser absoluta, ej. /docs/a.txt",
+			"invalid path: it must be absolute, e.g. /docs/a.txt",
 		)
 		return
 	}
@@ -111,6 +112,7 @@ func (srv *Server) handlePutInit(
 		return
 	}
 
+	log.Printf("MetaNode: upload initialized username=%s path=%s blocks=%d", username, filePath, len(blocks))
 	writeJSON(w, http.StatusOK, putInitResponse{
 		Blocks:          blocks,
 		CapabilityToken: token,
@@ -135,7 +137,7 @@ func (srv *Server) handlePutComplete(
 
 	filePath, ok := cleanFilePath(req.Path)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida")
+		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
 
@@ -174,6 +176,7 @@ func (srv *Server) handlePutComplete(
 		return
 	}
 
+	log.Printf("MetaNode: upload completed username=%s path=%s", username, filePath)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -191,7 +194,7 @@ func (srv *Server) handleGetFile(
 
 	filePath, ok := cleanFilePath("/" + r.PathValue("path"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida")
+		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
 
@@ -227,6 +230,7 @@ func (srv *Server) handleGetFile(
 		return
 	}
 
+	log.Printf("MetaNode: download initialized username=%s path=%s blocks=%d", username, filePath, len(dtos))
 	writeJSON(w, http.StatusOK, getFileResponse{
 		Blocks:          dtos,
 		SHA256:          sha,
@@ -248,7 +252,7 @@ func (srv *Server) handleListFiles(
 ) {
 	dir, ok := cleanDirPath(r.URL.Query().Get("dir"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "directorio invalido")
+		writeError(w, http.StatusBadRequest, "invalid directory")
 		return
 	}
 
@@ -265,7 +269,7 @@ func (srv *Server) handleListFiles(
 		writeError(
 			w,
 			http.StatusInternalServerError,
-			"no se pudieron listar los directorios",
+			"failed to list directories",
 		)
 		return
 	}
@@ -302,7 +306,7 @@ func (srv *Server) handleDeleteFile(
 ) {
 	filePath, ok := cleanFilePath("/" + r.PathValue("path"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "ruta invalida")
+		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
 
@@ -316,14 +320,16 @@ func (srv *Server) handleDeleteFile(
 		return
 	}
 
+	username := usernameFrom(r)
 	if err := service.DeleteFile(
 		srv.store,
-		usernameFrom(r),
+		username,
 		filePath,
 	); err != nil {
 		writeServiceError(w, err)
 		return
 	}
 
+	log.Printf("MetaNode: file deleted username=%s path=%s", username, filePath)
 	w.WriteHeader(http.StatusNoContent)
 }

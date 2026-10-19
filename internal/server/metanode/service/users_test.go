@@ -198,7 +198,7 @@ func TestTokensNoSonIntercambiables(t *testing.T) {
 	// Un capability token no debe valer como token de sesión.
 	capTok, err := GenerateCapabilityToken("ana", OpGet, []string{"blk-1"}, 30*time.Second)
 	if err != nil {
-		t.Fatalf("generar capability token falló: %v", err)
+		t.Fatalf("generating capability token failed: %v", err)
 	}
 	if _, err := ValidateJWT(capTok); err != ErrInvalidToken {
 		t.Fatalf("ValidateJWT aceptó un capability token: err = %v", err)
@@ -207,10 +207,10 @@ func TestTokensNoSonIntercambiables(t *testing.T) {
 	// Un token de sesión no debe valer como capability token.
 	ses, err := generateSessionToken("ana", SessionTTL)
 	if err != nil {
-		t.Fatalf("generar token de sesión falló: %v", err)
+		t.Fatalf("generating session token failed: %v", err)
 	}
 	if _, err := ValidateCapabilityToken(ses); err != ErrInvalidToken {
-		t.Fatalf("ValidateCapabilityToken aceptó un token de sesión: err = %v", err)
+		t.Fatalf("ValidateCapabilityToken accepted a session token: err = %v", err)
 	}
 }
 
@@ -221,13 +221,13 @@ func TestRegisterTopeDeUsuarios(t *testing.T) {
 	// Sin bcrypt para que el test sea rápido
 	for i := 0; i < MaxUsers; i++ {
 		if err := s.CreateUser(store.UserInfo{Username: "user" + itoa(i), PasswordHash: "x"}); err != nil {
-			t.Fatalf("preparación %d falló: %v", i, err)
+			t.Fatalf("setup %d failed: %v", i, err)
 		}
 	}
 
 	// El registro número 51 debe ser rechazado por el tope.
 	if err := Register(s, "unomas", "secreta1"); err != ErrTooManyUsers {
-		t.Fatalf("error = %v, se esperaba ErrTooManyUsers", err)
+		t.Fatalf("error = %v, expected ErrTooManyUsers", err)
 	}
 }
 

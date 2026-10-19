@@ -41,35 +41,35 @@ func LoadConfig() (Config, error) {
 	}
 
 	if cfg.ID == "" {
-		return Config{}, fmt.Errorf("%s es obligatorio", envID)
+		return Config{}, fmt.Errorf("%s is required", envID)
 	}
 
 	if cfg.ClusterSecret == "" {
-		return Config{}, fmt.Errorf("%s es obligatorio", envCluster)
+		return Config{}, fmt.Errorf("%s is required", envCluster)
 	}
 
 	if secret := os.Getenv(envCapability); secret != "" {
 		cfg.CapabilitySecret = []byte(secret)
 	} else {
-		return Config{}, fmt.Errorf("%s es obligatorio", envCapability)
+		return Config{}, fmt.Errorf("%s is required", envCapability)
 	}
 
 	rawKey := os.Getenv(envKey)
 	if rawKey != "" {
 		key, err := hex.DecodeString(rawKey)
 		if err != nil {
-			return Config{}, fmt.Errorf("%s debe ser hexadecimal: %w", envKey, err)
+			return Config{}, fmt.Errorf("%s must be hexadecimal: %w", envKey, err)
 		}
 
 		if len(key) != crypto.KeySize {
-			return Config{}, fmt.Errorf("%s debe tener %d bytes (%d en hex)", envKey, crypto.KeySize, crypto.KeySize*2)
+			return Config{}, fmt.Errorf("%s must be %d bytes (%d in hex)", envKey, crypto.KeySize, crypto.KeySize*2)
 		}
 
 		cfg.Key = key
 	} else if os.Getenv(envAllowPlaintext) != "1" {
 		// Cifrado obligatorio salvo opt-in explícito (solo desarrollo).
 		return Config{}, fmt.Errorf(
-			"%s es obligatorio; para almacenar en claro (solo desarrollo) usa %s=1",
+			"%s is required; to store data unencrypted (development only), set %s=1",
 			envKey, envAllowPlaintext,
 		)
 	}

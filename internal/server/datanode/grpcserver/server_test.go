@@ -22,7 +22,7 @@ func newTestClient(t *testing.T) datanodev1.BlockServiceClient {
 
 	disk, err := blockstore.NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	lis := bufconn.Listen(1024 * 1024)
@@ -43,7 +43,7 @@ func newTestClient(t *testing.T) datanodev1.BlockServiceClient {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		t.Fatalf("no se pudo crear el cliente: %v", err)
+		t.Fatalf("failed to create client: %v", err)
 	}
 
 	t.Cleanup(func() { conn.Close() })
@@ -57,7 +57,7 @@ func storeBlock(t *testing.T, client datanodev1.BlockServiceClient, id string, d
 
 	stream, err := client.StoreBlock(context.Background())
 	if err != nil {
-		t.Fatalf("StoreBlock() error inesperado: %v", err)
+		t.Fatalf("StoreBlock() error unexpected: %v", err)
 	}
 
 	header := &datanodev1.StoreBlockRequest{
@@ -67,7 +67,7 @@ func storeBlock(t *testing.T, client datanodev1.BlockServiceClient, id string, d
 	}
 
 	if err := stream.Send(header); err != nil {
-		t.Fatalf("Send(header) error inesperado: %v", err)
+		t.Fatalf("Send(header) error unexpected: %v", err)
 	}
 
 	chunk := &datanodev1.StoreBlockRequest{
@@ -75,12 +75,12 @@ func storeBlock(t *testing.T, client datanodev1.BlockServiceClient, id string, d
 	}
 
 	if err := stream.Send(chunk); err != nil {
-		t.Fatalf("Send(chunk) error inesperado: %v", err)
+		t.Fatalf("Send(chunk) error unexpected: %v", err)
 	}
 
 	resp, err := stream.CloseAndRecv()
 	if err != nil {
-		t.Fatalf("CloseAndRecv() error inesperado: %v", err)
+		t.Fatalf("CloseAndRecv() error unexpected: %v", err)
 	}
 
 	return resp
@@ -92,7 +92,7 @@ func getBlock(t *testing.T, client datanodev1.BlockServiceClient, id string) []b
 
 	stream, err := client.GetBlock(context.Background(), &datanodev1.GetBlockRequest{BlockId: id})
 	if err != nil {
-		t.Fatalf("GetBlock() error inesperado: %v", err)
+		t.Fatalf("GetBlock() error unexpected: %v", err)
 	}
 
 	var buf bytes.Buffer
@@ -104,7 +104,7 @@ func getBlock(t *testing.T, client datanodev1.BlockServiceClient, id string) []b
 		}
 
 		if err != nil {
-			t.Fatalf("Recv() error inesperado: %v", err)
+			t.Fatalf("Recv() error unexpected: %v", err)
 		}
 
 		if chunk := resp.GetChunk(); chunk != nil {
@@ -118,36 +118,36 @@ func getBlock(t *testing.T, client datanodev1.BlockServiceClient, id string) []b
 func TestStoreAndGetBlock(t *testing.T) {
 	client := newTestClient(t)
 
-	data := []byte("contenido del bloque por gRPC")
+	data := []byte("block content over gRPC")
 
 	resp := storeBlock(t, client, "blk-1", data)
 	if resp.GetSizeBytes() != int64(len(data)) {
-		t.Fatalf("StoreBlock() size = %d, se esperaba %d", resp.GetSizeBytes(), len(data))
+		t.Fatalf("StoreBlock() size = %d, expected %d", resp.GetSizeBytes(), len(data))
 	}
 
 	got := getBlock(t, client, "blk-1")
 	if !bytes.Equal(got, data) {
-		t.Fatalf("GetBlock() devolvió %q, se esperaba %q", got, data)
+		t.Fatalf("GetBlock() returned %q, expected %q", got, data)
 	}
 }
 
 func TestVerifyBlock(t *testing.T) {
 	client := newTestClient(t)
 
-	data := []byte("datos a verificar")
+	data := []byte("data to verify")
 	resp := storeBlock(t, client, "blk-1", data)
 
 	verify, err := client.VerifyBlock(context.Background(), &datanodev1.VerifyBlockRequest{BlockId: "blk-1"})
 	if err != nil {
-		t.Fatalf("VerifyBlock() error inesperado: %v", err)
+		t.Fatalf("VerifyBlock() error unexpected: %v", err)
 	}
 
 	if !verify.GetExists() {
-		t.Fatalf("VerifyBlock() exists = false, se esperaba true")
+		t.Fatalf("VerifyBlock() exists = false, expected true")
 	}
 
 	if verify.GetSha256() != resp.GetSha256() {
-		t.Fatalf("VerifyBlock() sha256 = %q, se esperaba %q", verify.GetSha256(), resp.GetSha256())
+		t.Fatalf("VerifyBlock() sha256 = %q, expected %q", verify.GetSha256(), resp.GetSha256())
 	}
 }
 
@@ -158,21 +158,21 @@ func TestDeleteBlock(t *testing.T) {
 
 	resp, err := client.DeleteBlock(context.Background(), &datanodev1.DeleteBlockRequest{BlockId: "blk-1"})
 	if err != nil {
-		t.Fatalf("DeleteBlock() error inesperado: %v", err)
+		t.Fatalf("DeleteBlock() error unexpected: %v", err)
 	}
 
 	if !resp.GetDeleted() {
-		t.Fatalf("DeleteBlock() deleted = false, se esperaba true")
+		t.Fatalf("DeleteBlock() deleted = false, expected true")
 	}
 
 	// Un segundo borrado reporta deleted=false sin error.
 	resp2, err := client.DeleteBlock(context.Background(), &datanodev1.DeleteBlockRequest{BlockId: "blk-1"})
 	if err != nil {
-		t.Fatalf("DeleteBlock() error inesperado: %v", err)
+		t.Fatalf("DeleteBlock() error unexpected: %v", err)
 	}
 
 	if resp2.GetDeleted() {
-		t.Fatalf("DeleteBlock() deleted = true en bloque ya borrado")
+		t.Fatalf("DeleteBlock() deleted = true for an already deleted block")
 	}
 }
 
@@ -181,10 +181,10 @@ func TestGetMissingBlock(t *testing.T) {
 
 	stream, err := client.GetBlock(context.Background(), &datanodev1.GetBlockRequest{BlockId: "no-existe"})
 	if err != nil {
-		t.Fatalf("GetBlock() error inesperado al abrir: %v", err)
+		t.Fatalf("GetBlock() error unexpected al abrir: %v", err)
 	}
 
 	if _, err := stream.Recv(); err == nil {
-		t.Fatalf("GetBlock() debió fallar para un bloque inexistente")
+		t.Fatalf("GetBlock() should fail for a missing block")
 	}
 }

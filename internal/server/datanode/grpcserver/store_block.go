@@ -19,17 +19,18 @@ import (
 func (s *Server) StoreBlock(stream datanodev1.BlockService_StoreBlockServer) error {
 	first, err := stream.Recv()
 	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "no se recibió el header: %v", err)
+		return status.Errorf(codes.InvalidArgument, "header was not received: %v", err)
 	}
 
 	header := first.GetHeader()
 	if header == nil {
-		return status.Error(codes.InvalidArgument, "el primer mensaje debe ser el header")
+		return status.Error(codes.InvalidArgument, "the first message must be the header")
 	}
 
 	if header.GetBlockId() == "" {
-		return status.Error(codes.InvalidArgument, "block_id vacío")
+		return status.Error(codes.InvalidArgument, "empty block_id")
 	}
+	log.Printf("datanode %s: block upload received block_id=%s remote=%s", s.selfID, header.GetBlockId(), remoteAddress(stream.Context()))
 
 	// Réplica (secreto de clúster) o cliente (capability op=put).
 	if s.requireClusterSecret(stream.Context()) != nil {
@@ -53,16 +54,17 @@ func (s *Server) StoreBlock(stream datanodev1.BlockService_StoreBlockServer) err
 	info, err := s.store.Write(header.GetBlockId(), pr)
 	if err != nil {
 		pr.CloseWithError(err)
-		return status.Errorf(codes.Internal, "falló al almacenar el bloque: %v", err)
+		return status.Errorf(codes.Internal, "failed to store block: %v", err)
 	}
 
 	// Si el header declara un hash, se valida contra el calculado al escribir.
 	// Si no coincide, se borra el bloque corrupto.
 	if header.GetSha256() != "" && header.GetSha256() != info.SHA256 {
+		log.Printf("datanode %s: block upload rejected due to hash mismatch block_id=%s expected_sha256=%s actual_sha256=%s", s.selfID, info.BlockID, header.GetSha256(), info.SHA256)
 		_, _ = s.store.Delete(info.BlockID)
 		return status.Errorf(
 			codes.DataLoss,
-			"hash no coincide: esperado %s, calculado %s",
+			"hash mismatch: expected %s, calculated %s",
 			header.GetSha256(),
 			info.SHA256,
 		)
@@ -71,7 +73,7 @@ func (s *Server) StoreBlock(stream datanodev1.BlockService_StoreBlockServer) err
 	// Reporte al Metanode para el quórum.
 	if s.reporter != nil {
 		if err := s.reporter.ReportBlock(stream.Context(), info.BlockID, s.selfID, info.SHA256); err != nil {
-			log.Printf("no se pudo reportar el bloque %s al metanode: %v", info.BlockID, err)
+			log.Printf("failed to report block %s to MetaNode: %v", info.BlockID, err)
 		}
 	}
 
@@ -79,6 +81,7 @@ func (s *Server) StoreBlock(stream datanodev1.BlockService_StoreBlockServer) err
 	// reenvía a cada una; los fallos no abortan el put (la re-replicación
 	// posterior la dispara el Metanode), solo se reflejan en stored_on.
 	storedOn := replicateBlock(stream.Context(), s, header, info)
+	log.Printf("datanode %s: block stored block_id=%s size_bytes=%d sha256=%s stored_on=%v remote=%s", s.selfID, info.BlockID, info.SizeBytes, info.SHA256, storedOn, remoteAddress(stream.Context()))
 
 	return stream.SendAndClose(&datanodev1.StoreBlockResponse{
 		BlockId:   info.BlockID,
@@ -102,6 +105,7 @@ func replicateBlock(
 	if len(targets) == 0 || s.replicator == nil {
 		return stored
 	}
+	log.Printf("datanode %s: starting block replication block_id=%s targets=%v", s.selfID, info.BlockID, targets)
 
 	block := replication.Block{
 		BlockID: info.BlockID,
@@ -115,8 +119,9 @@ func replicateBlock(
 
 	replicas, err := s.replicator.Replicate(ctx, block, targets)
 	if err != nil {
-		log.Printf("replicación parcial del bloque %s: %v", info.BlockID, err)
+		log.Printf("datanode %s: partial replication of block %s: %v", s.selfID, info.BlockID, err)
 	}
+	log.Printf("datanode %s: block replication finished block_id=%s successful_targets=%v", s.selfID, info.BlockID, replicas)
 
 	return append(stored, replicas...)
 }
@@ -135,7 +140,7 @@ func drainChunks(stream datanodev1.BlockService_StoreBlockServer, w io.Writer) e
 
 		chunk := req.GetChunk()
 		if chunk == nil {
-			return fmt.Errorf("se esperaba un chunk, llegó otro tipo de mensaje")
+			return fmt.Errorf("expected a chunk, received a different message type")
 		}
 
 		if _, err := w.Write(chunk); err != nil {

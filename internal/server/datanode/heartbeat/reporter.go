@@ -1,6 +1,10 @@
 package heartbeat
 
-import "context"
+import (
+	"context"
+
+	"dfsha/internal/server/datanode/blockstore"
+)
 
 // Report es el estado que un DataNode comunica al Metanode en cada latido.
 type Report struct {
@@ -8,6 +12,7 @@ type Report struct {
 	Address    string
 	FreeBytes  int64
 	BlockCount int
+	Blocks     []blockstore.BlockReport
 }
 
 // Reporter es el borde hacia el Metanode.

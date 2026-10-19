@@ -1,8 +1,8 @@
-//go:build !linux && !darwin
+//go:build !linux && !darwin && !windows
 
 package datanode
 
-// freeBytes devuelve 0 donde no hay statfs (solo para compilar)
+// freeBytes returns zero on platforms without a supported filesystem API.
 func freeBytes(dir string) int64 {
 	return 0
 }

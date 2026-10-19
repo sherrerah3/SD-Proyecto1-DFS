@@ -36,14 +36,14 @@ func BlockSize() int64 { return blockSizeBytes }
 
 var (
 	ErrQuotaExceeded    = store.ErrQuotaExceeded
-	ErrNotFound         = errors.New("archivo no encontrado")
-	ErrNoDataNodes      = errors.New("no hay datanodes disponibles")
-	ErrInvalidSize      = errors.New("el tamaño del archivo debe ser mayor a 0")
-	ErrAlreadyExists    = errors.New("ya existe un archivo en esa ruta")
-	ErrAlreadyCompleted = errors.New("la subida de este archivo ya fue completada")
-	ErrInvalidHash      = errors.New("hash SHA256 inválido")
-	ErrParentMissing    = errors.New("el directorio padre no existe")
-	ErrQuorumNotMet     = errors.New("un bloque no alcanzó el quórum de confirmaciones")
+	ErrNotFound         = errors.New("file not found")
+	ErrNoDataNodes      = errors.New("no datanodes available")
+	ErrInvalidSize      = errors.New("file size must be greater than 0")
+	ErrAlreadyExists    = errors.New("a file already exists at this path")
+	ErrAlreadyCompleted = errors.New("this file upload has already been completed")
+	ErrInvalidHash      = errors.New("invalid SHA256 hash")
+	ErrParentMissing    = errors.New("parent directory does not exist")
+	ErrQuorumNotMet     = errors.New("a block did not reach the acknowledgment quorum")
 )
 
 var rrIndex atomic.Uint64
@@ -53,7 +53,7 @@ type BlockPlacement struct {
 	DataNodes []string
 }
 
-// InitPut inicia una subida nueva. No sobrescribe un archivo terminado.
+// InitPut starts a new upload. It does not overwrite a completed file.
 func InitPut(
 	s store.Store,
 	username, filePath string,
@@ -75,8 +75,8 @@ func InitPut(
 	return initPutAt(s, username, filePath, filePath, sizeBytes, sizeBytes)
 }
 
-// InitPutForUpdate inicia la subida de una nueva versión sin eliminar
-// la versión que ya existe en la ruta visible.
+// InitPutForUpdate starts uploading a new version without deleting
+// the version that already exists at the visible path.
 func InitPutForUpdate(
 	s store.Store,
 	username, filePath string,
@@ -103,13 +103,13 @@ func InitPutForUpdate(
 			stagePath,
 		); err != nil {
 			return nil, fmt.Errorf(
-				"no se pudo limpiar una actualización anterior: %w",
+				"failed to clean up a previous update: %w",
 				err,
 			)
 		}
 	}
 
-	// La cuota refleja el tamaño de la nueva versión.
+	// The quota reflects the size of the new version.
 	quotaDelta := sizeBytes - existing.SizeBytes
 
 	return initPutAt(
@@ -122,8 +122,8 @@ func InitPutForUpdate(
 	)
 }
 
-// initPutAt centraliza la preparación de la subida.
-// logicalPath es la ruta visible; metadataPath puede ser temporal.
+// initPutAt centralizes upload preparation.
+// logicalPath is the visible path; metadataPath may be temporary.
 func initPutAt(
 	s store.Store,
 	username, logicalPath, metadataPath string,
@@ -138,12 +138,12 @@ func initPutAt(
 
 	aliveNodes, err := s.ListAliveDataNodes()
 	if err != nil {
-		return nil, fmt.Errorf("error al listar datanodes: %w", err)
+		return nil, fmt.Errorf("error listing datanodes: %w", err)
 	}
 
 	if len(aliveNodes) < ReplicationFactor {
 		return nil, fmt.Errorf(
-			"%w: hay %d pero se necesitan al menos %d",
+			"%w: found %d but at least %d are required",
 			ErrNoDataNodes,
 			len(aliveNodes),
 			ReplicationFactor,
@@ -162,7 +162,7 @@ func initPutAt(
 		if errors.Is(err, store.ErrQuotaExceeded) {
 			return nil, ErrQuotaExceeded
 		}
-		return nil, fmt.Errorf("error al reservar cuota: %w", err)
+		return nil, fmt.Errorf("error reserving quota: %w", err)
 	}
 
 	releaseQuota := func() {
@@ -209,7 +209,7 @@ func initPutAt(
 			return nil, ErrAlreadyExists
 		}
 
-		return nil, fmt.Errorf("error al registrar archivo: %w", err)
+		return nil, fmt.Errorf("error registering file: %w", err)
 	}
 
 	for i, p := range placements {
@@ -226,7 +226,7 @@ func initPutAt(
 			releaseQuota()
 
 			return nil, fmt.Errorf(
-				"error al guardar bloque %s: %w",
+				"error saving block %s: %w",
 				p.BlockID,
 				err,
 			)
@@ -236,7 +236,7 @@ func initPutAt(
 	return placements, nil
 }
 
-// updateStagePath genera una ruta interna estable para la versión temporal.
+// updateStagePath generates a stable internal path for the temporary version.
 func updateStagePath(username, filePath string) string {
 	sum := sha256.Sum256(
 		[]byte(username + "\x00" + path.Clean(filePath)),
@@ -252,8 +252,8 @@ func isUpdateStagePath(filePath string) bool {
 	return strings.HasPrefix(path.Base(filePath), ".dfsha-stage-")
 }
 
-// discardStagedUpdate elimina una subida temporal incompleta y recupera
-// la cuota de la versión que continúa publicada.
+// discardStagedUpdate removes an incomplete temporary upload and restores
+// the quota for the version that remains published.
 func discardStagedUpdate(
 	s store.Store,
 	username, targetPath, stagePath string,
@@ -273,7 +273,7 @@ func discardStagedUpdate(
 
 	if err := s.UpdateQuotaUsed(username, original.SizeBytes); err != nil {
 		return fmt.Errorf(
-			"no se pudo restaurar la cuota del archivo original: %w",
+			"failed to restore the original file quota: %w",
 			err,
 		)
 	}
@@ -281,7 +281,7 @@ func discardStagedUpdate(
 	return nil
 }
 
-// AbortPutForUpdate descarta la nueva versión si no llegó a confirmarse.
+// AbortPutForUpdate discards the new version if it was not confirmed.
 func AbortPutForUpdate(
 	s store.Store,
 	username, filePath string,
@@ -301,8 +301,8 @@ func AbortPutForUpdate(
 	)
 }
 
-// CompletePutForUpdate publica la nueva versión una vez subida y confirmada.
-// La sustitución de metadata es atómica en el store.
+// CompletePutForUpdate publishes the new version once it has been uploaded and confirmed.
+// The metadata replacement is atomic in the store.
 func CompletePutForUpdate(
 	s store.Store,
 	username, filePath, sha256Hash string,
@@ -340,34 +340,46 @@ func CompletePutForUpdate(
 	)
 	if err != nil {
 		return fmt.Errorf(
-			"no se pudo publicar la nueva versión: %w",
+			"failed to publish the new version: %w",
 			err,
 		)
 	}
 
-	// La nueva versión ya está publicada. Se liberan los bloques viejos.
-	deleteFileBlocks(s, oldFile)
+	// The new version is now published. Queue deletion of the old replicas.
+	if err := deleteFileBlocks(s, oldFile); err != nil {
+		return fmt.Errorf("new file version was published but old-block cleanup failed: %w", err)
+	}
 
 	return nil
 }
 
-// deleteFileBlocks encola el borrado de las réplicas de una versión antigua.
-func deleteFileBlocks(s store.Store, file store.FileMetadata) {
+// deleteFileBlocks durably queues deletion of replicas belonging to an old version.
+func deleteFileBlocks(s store.Store, file store.FileMetadata) error {
 	for _, blockID := range file.BlockIDs {
+		// A block may still be referenced by another file or by the newly
+		// published version. Never queue deletion for a block still in use.
+		if s.IsBlockReferenced(blockID) {
+			continue
+		}
 		block, err := s.GetBlockLocation(blockID)
 		if err != nil {
 			continue
 		}
 
 		for _, nodeID := range block.DataNodes {
-			_ = s.EnqueueBlockDeletion(nodeID, blockID)
+			if err := s.EnqueueBlockDeletion(nodeID, blockID); err != nil {
+				return fmt.Errorf("failed to queue deletion of block %s on datanode %s: %w", blockID, nodeID, err)
+			}
 		}
 
-		_ = s.DeleteBlockLocation(blockID)
+		if err := s.DeleteBlockLocation(blockID); err != nil {
+			return fmt.Errorf("failed to remove location metadata for block %s: %w", blockID, err)
+		}
 	}
+	return nil
 }
 
-// CompletePut finaliza una subida y exige quórum para cada bloque.
+// CompletePut finalizes an upload and requires a quorum for every block.
 func CompletePut(
 	s store.Store,
 	username, filePath, sha256Hash string,
@@ -401,7 +413,7 @@ func CompletePut(
 
 			if err := s.SaveBlockLocation(block); err != nil {
 				return fmt.Errorf(
-					"error al fijar hash de bloque: %w",
+					"error setting block hash: %w",
 					err,
 				)
 			}
@@ -411,7 +423,7 @@ func CompletePut(
 	file.SHA256 = sha256Hash
 
 	if err := s.UpdateFile(file); err != nil {
-		return fmt.Errorf("error al actualizar archivo: %w", err)
+		return fmt.Errorf("error updating file: %w", err)
 	}
 
 	return nil
@@ -460,7 +472,7 @@ func ReportBlockStored(
 	return nil
 }
 
-// ResolveGet devuelve los bloques y sus direcciones, con los nodos vivos primero.
+// ResolveGet returns the blocks and their addresses, with live nodes first.
 func ResolveGet(
 	s store.Store,
 	username, filePath string,
@@ -481,7 +493,7 @@ func ResolveGet(
 		block, err := s.GetBlockLocation(blockID)
 		if err != nil {
 			return nil, "", fmt.Errorf(
-				"bloque %s no encontrado: %w",
+				"block %s not found: %w",
 				blockID,
 				err,
 			)
@@ -543,7 +555,7 @@ func orderLiveFirst(
 	return append(live, dead...)
 }
 
-// ListDir devuelve archivos completos que son hijos directos del directorio.
+// ListDir returns completed files that are direct children of the directory.
 func ListDir(
 	s store.Store,
 	username, dirPath string,
@@ -552,7 +564,7 @@ func ListDir(
 
 	all, err := s.ListFiles(username, dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("error al listar archivos: %w", err)
+		return nil, fmt.Errorf("error listing files: %w", err)
 	}
 
 	owned := make([]store.FileMetadata, 0, len(all))
@@ -568,7 +580,7 @@ func ListDir(
 	return owned, nil
 }
 
-// DeleteFile elimina metadata y bloques, recuperando la cuota.
+// DeleteFile removes metadata and blocks, restoring the quota.
 func DeleteFile(
 	s store.Store,
 	username, filePath string,
@@ -578,7 +590,7 @@ func DeleteFile(
 		return ErrNotFound
 	}
 
-	// Si quedó una actualización temporal incompleta, se elimina antes.
+	// If an incomplete temporary update remains, remove it first.
 	if !isUpdateStagePath(filePath) {
 		stagePath := updateStagePath(username, filePath)
 
@@ -594,25 +606,18 @@ func DeleteFile(
 		}
 	}
 
-	for _, blockID := range file.BlockIDs {
-		block, err := s.GetBlockLocation(blockID)
-		if err != nil {
-			continue
-		}
-
-		for _, nodeID := range block.DataNodes {
-			_ = s.EnqueueBlockDeletion(nodeID, blockID)
-		}
-
-		_ = s.DeleteBlockLocation(blockID)
+	// Remove the file reference first. If cleanup is interrupted, the
+	// reconciliation pass can find orphaned block locations and queue them.
+	if err := s.DeleteFile(username, filePath); err != nil {
+		return fmt.Errorf("failed to delete file metadata: %w", err)
 	}
 
-	if err := s.DeleteFile(username, filePath); err != nil {
-		return fmt.Errorf("error al borrar archivo: %w", err)
+	if err := deleteFileBlocks(s, file); err != nil {
+		return fmt.Errorf("file was deleted but block cleanup failed: %w", err)
 	}
 
 	if err := s.UpdateQuotaUsed(username, -file.SizeBytes); err != nil {
-		return fmt.Errorf("error al actualizar cuota: %w", err)
+		return fmt.Errorf("error updating quota: %w", err)
 	}
 
 	return nil

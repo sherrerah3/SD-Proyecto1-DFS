@@ -2,7 +2,7 @@ package store
 
 import "errors"
 
-var ErrDataNodeNotFound = errors.New("datanode no encontrado")
+var ErrDataNodeNotFound = errors.New("datanode not found")
 
 type Store interface {
 	// Archivos
@@ -22,6 +22,7 @@ type Store interface {
 	// Bloques
 	SaveBlockLocation(b BlockMetadata) error
 	GetBlockLocation(blockID string) (BlockMetadata, error)
+	ListBlockLocations() ([]BlockMetadata, error)
 	DeleteBlockLocation(blockID string) error
 	ReportBlock(blockID, dataNodeID, hash string) error
 
@@ -48,7 +49,12 @@ type Store interface {
 	DirectoryExists(username, dirPath string) bool
 	ListDirectories(username, dirPath string) ([]string, error)
 
-	// Borrados pendientes por DataNode
+	// Durable deletion queue for each DataNode.
 	EnqueueBlockDeletion(dataNodeID, blockID string) error
 	DequeueBlockDeletions(dataNodeID string) ([]string, error)
+	ListBlockDeletions(dataNodeID string) ([]string, error)
+	AckBlockDeletions(dataNodeID string, blockIDs []string) error
+
+	// Reports whether any file metadata still references this block.
+	IsBlockReferenced(blockID string) bool
 }

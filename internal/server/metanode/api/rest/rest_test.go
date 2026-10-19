@@ -23,7 +23,7 @@ func setup(t *testing.T) (http.Handler, store.Store) {
 	s := store.NewMemoryStore()
 	for i, id := range []string{"dn1", "dn2", "dn3"} {
 		if err := service.RegisterDataNode(s, id, "127.0.0.1:900"+string(rune('0'+i))); err != nil {
-			t.Fatalf("preparación falló: %v", err)
+			t.Fatalf("setup failed: %v", err)
 		}
 	}
 	srv := NewServer(s)
@@ -40,7 +40,7 @@ func alcanzarQuorumAPI(t *testing.T, h http.Handler, initBody []byte, sha string
 		} `json:"blocks"`
 	}
 	if err := json.Unmarshal(initBody, &init); err != nil {
-		t.Fatalf("no se pudo leer la respuesta de put-init: %v", err)
+		t.Fatalf("failed to read the put-init response: %v", err)
 	}
 	for _, b := range init.Blocks {
 		for _, dn := range []string{"dn1", "dn2"} {
@@ -48,7 +48,7 @@ func alcanzarQuorumAPI(t *testing.T, h http.Handler, initBody []byte, sha string
 				"block_id": b.BlockID, "datanode_id": dn, "sha256": sha,
 			})
 			if rec.Code != http.StatusNoContent {
-				t.Fatalf("report de bloque devolvió %d: %s", rec.Code, rec.Body.String())
+				t.Fatalf("block report returned %d: %s", rec.Code, rec.Body.String())
 			}
 		}
 	}
@@ -89,17 +89,17 @@ func registraYLoguea(t *testing.T, h http.Handler, user, pass string) string {
 	t.Helper()
 	creds := map[string]string{"username": user, "password": pass}
 	if rec := do(t, h, "POST", "/auth/register", "", creds); rec.Code != http.StatusNoContent {
-		t.Fatalf("register devolvió %d", rec.Code)
+		t.Fatalf("register returned %d", rec.Code)
 	}
 	rec := do(t, h, "POST", "/auth/login", "", creds)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("login devolvió %d", rec.Code)
+		t.Fatalf("login returned %d", rec.Code)
 	}
 	var resp struct {
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("no se pudo leer el token: %v", err)
+		t.Fatalf("failed to read the token: %v", err)
 	}
 	return resp.Token
 }
@@ -112,13 +112,13 @@ func TestLoginMalasCredencialesMismaRespuesta(t *testing.T) {
 	noExiste := do(t, h, "POST", "/auth/login", "", map[string]string{"username": "nadie", "password": "secreta1"})
 
 	if malPass.Code != http.StatusUnauthorized {
-		t.Fatalf("password mala: código %d, se esperaba 401", malPass.Code)
+		t.Fatalf("wrong password: status %d, expected 401", malPass.Code)
 	}
 	if noExiste.Code != http.StatusUnauthorized {
-		t.Fatalf("usuario inexistente: código %d, se esperaba 401", noExiste.Code)
+		t.Fatalf("missing user: status code %d, expected 401", noExiste.Code)
 	}
 	if malPass.Body.String() != noExiste.Body.String() {
-		t.Fatalf("las respuestas difieren y revelan si el usuario existe:\n%q\n%q",
+		t.Fatalf("responses differ and reveal whether the user exists:\n%q\n%q",
 			malPass.Body.String(), noExiste.Body.String())
 	}
 }
@@ -128,12 +128,12 @@ func TestRutaProtegidaSinOConTokenInvalido(t *testing.T) {
 
 	sinHeader := do(t, h, "GET", "/files/a.txt", "", nil)
 	if sinHeader.Code != http.StatusUnauthorized {
-		t.Fatalf("sin header: código %d, se esperaba 401", sinHeader.Code)
+		t.Fatalf("missing header: status code %d, expected 401", sinHeader.Code)
 	}
 
 	manipulado := do(t, h, "GET", "/files/a.txt", "token.falso.xyz", nil)
 	if manipulado.Code != http.StatusUnauthorized {
-		t.Fatalf("token manipulado: código %d, se esperaba 401", manipulado.Code)
+		t.Fatalf("tampered token: status code %d, expected 401", manipulado.Code)
 	}
 }
 
@@ -142,12 +142,12 @@ func TestCapabilityTokenNoSirveComoSesion(t *testing.T) {
 
 	capTok, err := service.GenerateCapabilityToken("ana", service.OpGet, []string{"blk-1"}, service.SessionTTL)
 	if err != nil {
-		t.Fatalf("no se pudo generar capability token: %v", err)
+		t.Fatalf("failed to generate capability token: %v", err)
 	}
 
 	rec := do(t, h, "GET", "/files/a.txt", capTok, nil)
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("capability token como sesión: código %d, se esperaba 401", rec.Code)
+		t.Fatalf("capability token used as a session: status code %d, expected 401", rec.Code)
 	}
 }
 
@@ -157,12 +157,12 @@ func TestPutInitEntradasInvalidas(t *testing.T) {
 
 	negativo := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "/a.txt", "size_bytes": -1})
 	if negativo.Code != http.StatusBadRequest {
-		t.Fatalf("size negativo: código %d, se esperaba 400", negativo.Code)
+		t.Fatalf("negative size: status code %d, expected 400", negativo.Code)
 	}
 
 	relativa := do(t, h, "POST", "/files/put-init", token, map[string]any{"path": "a.txt", "size_bytes": 1024})
 	if relativa.Code != http.StatusBadRequest {
-		t.Fatalf("ruta relativa: código %d, se esperaba 400", relativa.Code)
+		t.Fatalf("relative path: status %d, expected 400", relativa.Code)
 	}
 }
 
@@ -174,21 +174,21 @@ func TestArchivoAjenoDa404(t *testing.T) {
 	// A sube y completa un archivo.
 	init := do(t, h, "POST", "/files/put-init", tokenA, map[string]any{"path": "/a.txt", "size_bytes": 1024})
 	if init.Code != http.StatusOK {
-		t.Fatalf("put-init de A devolvió %d", init.Code)
+		t.Fatalf("put-init for A returned %d", init.Code)
 	}
 	sha := strings.Repeat("0", 64)
 	alcanzarQuorumAPI(t, h, init.Body.Bytes(), sha)
 	complete := do(t, h, "POST", "/files/put-complete", tokenA, map[string]any{"path": "/a.txt", "sha256": sha})
 	if complete.Code != http.StatusNoContent {
-		t.Fatalf("put-complete de A devolvió %d", complete.Code)
+		t.Fatalf("put-complete for A returned %d", complete.Code)
 	}
 
 	// B intenta GET y DELETE sobre el archivo de A: ambos 404.
 	if get := do(t, h, "GET", "/files/a.txt", tokenB, nil); get.Code != http.StatusNotFound {
-		t.Fatalf("GET ajeno: código %d, se esperaba 404", get.Code)
+		t.Fatalf("GET for another user's file: status code %d, expected 404", get.Code)
 	}
 	if del := do(t, h, "DELETE", "/files/a.txt", tokenB, nil); del.Code != http.StatusNotFound {
-		t.Fatalf("DELETE ajeno: código %d, se esperaba 404", del.Code)
+		t.Fatalf("DELETE for another user's file: status code %d, expected 404", del.Code)
 	}
 }
 

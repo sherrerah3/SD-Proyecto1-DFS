@@ -149,7 +149,7 @@ func (c *Client) do(method, endpoint, token string, body, out any) error {
 		return decodeResponse(resp, out)
 	}
 
-	return fmt.Errorf("could not contact the metanode: %w", lastErr)
+	return fmt.Errorf("could not contact the MetaNode: %w", lastErr)
 }
 
 func decodeResponse(resp *http.Response, out any) error {
@@ -283,13 +283,13 @@ func (c *Client) put(
 		},
 		&init,
 	); err != nil {
-		return fmt.Errorf("metanode rejected the upload initialization: %w", err)
+		return fmt.Errorf("MetaNode rejected the upload initialization: %w", err)
 	}
 
 	expectedBlocks := (info.Size() + putBlockSize - 1) / putBlockSize
 	if int64(len(init.Blocks)) != expectedBlocks {
 		return fmt.Errorf(
-			"metanode assigned %d blocks, but expected %d",
+			"MetaNode assigned %d blocks, but expected %d",
 			len(init.Blocks),
 			expectedBlocks,
 		)
@@ -376,7 +376,7 @@ func (c *Client) put(
 	}
 
 	if output != nil {
-		fmt.Fprintln(output, "[put] all blocks confirmed; finalizing metadata on the metanode")
+		fmt.Fprintln(output, "[put] all blocks confirmed; finalizing metadata on the MetaNode")
 	}
 
 	if err := c.do(
@@ -392,7 +392,7 @@ func (c *Client) put(
 		nil,
 	); err != nil {
 		if output != nil {
-			fmt.Fprintf(output, "[FAIL] metanode could not complete the upload: %v\n", err)
+			fmt.Fprintf(output, "[FAIL] MetaNode could not complete the upload: %v\n", err)
 		}
 		return fmt.Errorf("blocks were sent, but the upload could not be completed: %w", err)
 	}

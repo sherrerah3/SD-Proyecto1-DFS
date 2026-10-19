@@ -13,7 +13,7 @@ import (
 // Nombres de los archivos de coordinación dentro de la carpeta compartida.
 const (
 	heartbeatFileName = "heartbeat.txt"
-	lockFileName      = "metanode.lock"
+	lockFileName      = "MetaNode.lock"
 )
 
 // lockInfo es el contenido del archivo de lock: quién lo tiene y desde cuándo.
@@ -129,7 +129,7 @@ func RenewLock(basePath, nodeID string) error {
 		return err
 	}
 	if cur.Owner != nodeID {
-		return errors.New("el lock ya no nos pertenece")
+		return errors.New("lock is not yours now")
 	}
 	return writeLock(path, nodeID)
 }
@@ -190,5 +190,5 @@ func atomicWrite(path string, data []byte) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	return replaceFile(tmp, path)
 }

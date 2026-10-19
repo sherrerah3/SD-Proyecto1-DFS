@@ -9,6 +9,6 @@ type BlockInfo struct {
 
 // BlockReport es el estado de integridad de un bloque, recalculado desde disco.
 type BlockReport struct {
-	BlockID string
-	SHA256  string
+	BlockID string `json:"block_id"`
+	SHA256  string `json:"sha256"`
 }

@@ -23,9 +23,9 @@ func TestWrite(t *testing.T) {
 		data    []byte
 		wantErr bool
 	}{
-		{name: "escribe un bloque nuevo", blockID: "blk-1", data: []byte("hola mundo"), wantErr: false},
-		{name: "escribe un bloque vacío", blockID: "blk-vacio", data: []byte{}, wantErr: false},
-		{name: "rechaza un block ID vacío", blockID: "", data: []byte("x"), wantErr: true},
+		{name: "writes a new block", blockID: "blk-1", data: []byte("hello world"), wantErr: false},
+		{name: "writes an empty block", blockID: "blk-empty", data: []byte{}, wantErr: false},
+		{name: "rechaza un empty block ID", blockID: "", data: []byte("x"), wantErr: true},
 		{name: "rechaza un block ID con separador", blockID: "a/b", data: []byte("x"), wantErr: true},
 		{name: "rechaza un block ID con traversal", blockID: "..", data: []byte("x"), wantErr: true},
 	}
@@ -34,7 +34,7 @@ func TestWrite(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, err := NewDiskStore(t.TempDir())
 			if err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			info, err := s.Write(tc.blockID, bytes.NewReader(tc.data))
@@ -47,56 +47,83 @@ func TestWrite(t *testing.T) {
 			}
 
 			if info.SizeBytes != int64(len(tc.data)) {
-				t.Fatalf("Write() size = %d, se esperaba %d", info.SizeBytes, len(tc.data))
+				t.Fatalf("Write() size = %d, expected %d", info.SizeBytes, len(tc.data))
 			}
 
 			if info.SHA256 != hashOf(tc.data) {
-				t.Fatalf("Write() sha256 = %q, se esperaba %q", info.SHA256, hashOf(tc.data))
+				t.Fatalf("Write() sha256 = %q, expected %q", info.SHA256, hashOf(tc.data))
 			}
 		})
+	}
+}
+
+func TestWriteReplacesExistingBlock(t *testing.T) {
+	s, err := NewDiskStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	if _, err := s.Write("reused-block", strings.NewReader("old content")); err != nil {
+		t.Fatalf("initial Write() failed: %v", err)
+	}
+	if _, err := s.Write("reused-block", strings.NewReader("new content")); err != nil {
+		t.Fatalf("replacing an existing block failed: %v", err)
+	}
+
+	rc, _, err := s.Read("reused-block")
+	if err != nil {
+		t.Fatalf("Read() after replacing the block failed: %v", err)
+	}
+	defer rc.Close()
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll() failed: %v", err)
+	}
+	if string(got) != "new content" {
+		t.Fatalf("block content = %q, expected %q", string(got), "new content")
 	}
 }
 
 func TestReadRoundTrip(t *testing.T) {
 	s, err := NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
-	data := []byte("contenido del bloque de prueba")
+	data := []byte("test block content")
 	if _, err := s.Write("blk-1", bytes.NewReader(data)); err != nil {
-		t.Fatalf("Write() error inesperado: %v", err)
+		t.Fatalf("Write() error unexpected: %v", err)
 	}
 
 	rc, info, err := s.Read("blk-1")
 	if err != nil {
-		t.Fatalf("Read() error inesperado: %v", err)
+		t.Fatalf("Read() error unexpected: %v", err)
 	}
 
 	defer rc.Close()
 
 	got, err := io.ReadAll(rc)
 	if err != nil {
-		t.Fatalf("ReadAll() error inesperado: %v", err)
+		t.Fatalf("ReadAll() error unexpected: %v", err)
 	}
 
 	if !bytes.Equal(got, data) {
-		t.Fatalf("Read() devolvió %q, se esperaba %q", got, data)
+		t.Fatalf("Read() returned %q, expected %q", got, data)
 	}
 
 	if info.SizeBytes != int64(len(data)) {
-		t.Fatalf("Read() size = %d, se esperaba %d", info.SizeBytes, len(data))
+		t.Fatalf("Read() size = %d, expected %d", info.SizeBytes, len(data))
 	}
 }
 
 func TestReadNotFound(t *testing.T) {
 	s, err := NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	if _, _, err := s.Read("no-existe"); err == nil {
-		t.Fatalf("Read() debió fallar para un bloque inexistente")
+		t.Fatalf("Read() should fail for a missing block")
 	}
 }
 
@@ -106,30 +133,30 @@ func TestDelete(t *testing.T) {
 		writeFirst bool
 		wantOK     bool
 	}{
-		{name: "borra un bloque existente", writeFirst: true, wantOK: true},
-		{name: "borrar inexistente no es error", writeFirst: false, wantOK: false},
+		{name: "deletes an existing block", writeFirst: true, wantOK: true},
+		{name: "deleting a missing block is not an error", writeFirst: false, wantOK: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s, err := NewDiskStore(t.TempDir())
 			if err != nil {
-				t.Fatalf("preparación falló: %v", err)
+				t.Fatalf("setup failed: %v", err)
 			}
 
 			if tc.writeFirst {
 				if _, err := s.Write("blk-1", strings.NewReader("x")); err != nil {
-					t.Fatalf("preparación falló: %v", err)
+					t.Fatalf("setup failed: %v", err)
 				}
 			}
 
 			ok, err := s.Delete("blk-1")
 			if err != nil {
-				t.Fatalf("Delete() error inesperado: %v", err)
+				t.Fatalf("Delete() error unexpected: %v", err)
 			}
 
 			if ok != tc.wantOK {
-				t.Fatalf("Delete() ok = %v, se esperaba %v", ok, tc.wantOK)
+				t.Fatalf("Delete() ok = %v, expected %v", ok, tc.wantOK)
 			}
 		})
 	}
@@ -138,58 +165,58 @@ func TestDelete(t *testing.T) {
 func TestVerify(t *testing.T) {
 	s, err := NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
-	data := []byte("datos para verificar")
+	data := []byte("data to verify")
 	if _, err := s.Write("blk-1", bytes.NewReader(data)); err != nil {
-		t.Fatalf("Write() error inesperado: %v", err)
+		t.Fatalf("Write() error unexpected: %v", err)
 	}
 
 	report, exists, err := s.Verify("blk-1")
 	if err != nil {
-		t.Fatalf("Verify() error inesperado: %v", err)
+		t.Fatalf("Verify() error unexpected: %v", err)
 	}
 
 	if !exists {
-		t.Fatalf("Verify() exists = false, se esperaba true")
+		t.Fatalf("Verify() exists = false, expected true")
 	}
 
 	if report.SHA256 != hashOf(data) {
-		t.Fatalf("Verify() sha256 = %q, se esperaba %q", report.SHA256, hashOf(data))
+		t.Fatalf("Verify() sha256 = %q, expected %q", report.SHA256, hashOf(data))
 	}
 
 	if _, exists, _ := s.Verify("no-existe"); exists {
-		t.Fatalf("Verify() exists = true para un bloque inexistente")
+		t.Fatalf("Verify() exists = true for a missing block")
 	}
 }
 
 func TestList(t *testing.T) {
 	s, err := NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	for _, id := range []string{"blk-1", "blk-2", "blk-3"} {
 		if _, err := s.Write(id, strings.NewReader(id)); err != nil {
-			t.Fatalf("preparación falló: %v", err)
+			t.Fatalf("setup failed: %v", err)
 		}
 	}
 
 	reports, err := s.List()
 	if err != nil {
-		t.Fatalf("List() error inesperado: %v", err)
+		t.Fatalf("List() error unexpected: %v", err)
 	}
 
 	if len(reports) != 3 {
-		t.Fatalf("List() devolvió %d bloques, se esperaban 3", len(reports))
+		t.Fatalf("List() returned %d blocks, expected 3", len(reports))
 	}
 }
 
 func TestWriteConcurrent(t *testing.T) {
 	s, err := NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	const n = 50
@@ -214,15 +241,15 @@ func TestWriteConcurrent(t *testing.T) {
 	close(errs)
 
 	for err := range errs {
-		t.Fatalf("Write() concurrente falló: %v", err)
+		t.Fatalf("concurrent Write() failed: %v", err)
 	}
 
 	reports, err := s.List()
 	if err != nil {
-		t.Fatalf("List() error inesperado: %v", err)
+		t.Fatalf("List() error unexpected: %v", err)
 	}
 
 	if len(reports) != n {
-		t.Fatalf("List() devolvió %d bloques, se esperaban %d", len(reports), n)
+		t.Fatalf("List() returned %d blocks, expected %d", len(reports), n)
 	}
 }

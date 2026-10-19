@@ -67,11 +67,11 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 		nil,
 		&metadata,
 	); err != nil {
-		return fmt.Errorf("metanode rejected the download request: %w", err)
+		return fmt.Errorf("MetaNode rejected the download request: %w", err)
 	}
 
 	if metadata.SHA256 == "" {
-		return errors.New("metanode returned no file checksum")
+		return errors.New("MetaNode returned no file checksum")
 	}
 
 	// Create the temporary file in the destination directory so that
@@ -100,7 +100,7 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 	for i, block := range metadata.Blocks {
 		if len(block.DataNodes) == 0 {
 			if output != nil {
-				fmt.Fprintf(output, "[FALLO] bloque %d/%d ID=%s: el metanode no asignó DataNodes\n",
+				fmt.Fprintf(output, "[FAIL] block %d/%d ID=%s: the MetaNode did not assign any DataNodes\n",
 					i+1, len(metadata.Blocks), block.BlockID)
 			}
 			temp.Close()
@@ -110,7 +110,7 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 		data, source, err := downloadBlock(block.BlockID, block.DataNodes, metadata.CapabilityToken, output, i+1, len(metadata.Blocks))
 		if err != nil {
 			if output != nil {
-				fmt.Fprintf(output, "[FALLO] no se pudo recuperar el bloque %d/%d ID=%s: %v\n",
+				fmt.Fprintf(output, "[FAIL] could not retrieve block %d/%d ID=%s: %v\n",
 					i+1, len(metadata.Blocks), block.BlockID, err)
 			}
 			temp.Close()
@@ -118,7 +118,7 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 				i+1, block.BlockID, err)
 		}
 		if output != nil {
-			fmt.Fprintf(output, "[OK] bloque %d/%d ID=%s recuperado desde %s (%d bytes)\n",
+			fmt.Fprintf(output, "[OK] block %d/%d ID=%s retrieved from %s (%d bytes)\n",
 				i+1, len(metadata.Blocks), block.BlockID, source, len(data))
 		}
 
@@ -133,7 +133,7 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 	actualHash := hex.EncodeToString(fileHash.Sum(nil))
 	if !strings.EqualFold(actualHash, metadata.SHA256) {
 		if output != nil {
-			fmt.Fprintf(output, "[FALLO] hash del archivo incorrecto: esperado=%s obtenido=%s\n",
+			fmt.Fprintf(output, "[FAIL] file hash mismatch: expected=%s actual=%s\n",
 				metadata.SHA256, actualHash)
 		}
 		temp.Close()
@@ -156,13 +156,13 @@ func (c *Client) get(remotePath, localPath, token string, output io.Writer) erro
 	// Do not publish an incomplete or corrupted download.
 	if err := publishDownloadedFile(tempPath, destination); err != nil {
 		if output != nil {
-			fmt.Fprintf(output, "[FALLO] no se pudo guardar el archivo local %s: %v\n", destination, err)
+			fmt.Fprintf(output, "[FAIL] could not save local file %s: %v\n", destination, err)
 		}
 		return fmt.Errorf("cannot save downloaded file: %w", err)
 	}
 
 	if output != nil {
-		fmt.Fprintf(output, "[OK] archivo verificado y guardado en %s; SHA-256=%s\n", destination, actualHash)
+		fmt.Fprintf(output, "[OK] file verified and saved to %s; SHA-256=%s\n", destination, actualHash)
 	}
 	return nil
 }
@@ -175,7 +175,7 @@ func downloadBlock(blockID string, dataNodes []string, capability string, output
 		data, err := readBlockFromDataNode(address, blockID, capability)
 		if err == nil {
 			if output != nil && attempt > 0 {
-				fmt.Fprintf(output, "  [RECUPERADO] bloque %s: réplica %s funcionó tras %d intento(s) fallido(s)\n",
+				fmt.Fprintf(output, "  [RECOVERED] block %s: replica %s succeeded after %d failed attempt(s)\n",
 					blockID, address, attempt)
 			}
 			return data, address, nil
@@ -183,15 +183,15 @@ func downloadBlock(blockID string, dataNodes []string, capability string, output
 
 		lastErr = fmt.Errorf("%s: %w", address, err)
 		if output != nil {
-			fmt.Fprintf(output, "  [FALLO DE LECTURA] bloque %d/%d ID=%s en DataNode %s: %v\n",
+			fmt.Fprintf(output, "  [READ FAILURE] block %d/%d ID=%s on DataNode %s: %v\n",
 				blockNum, total, blockID, address, err)
 		}
 	}
 
 	if lastErr == nil {
-		lastErr = errors.New("no hay réplicas disponibles")
+		lastErr = errors.New("no replicas are available")
 	}
-	return nil, "", fmt.Errorf("todas las réplicas fallaron: %w", lastErr)
+	return nil, "", fmt.Errorf("all replicas failed: %w", lastErr)
 }
 
 func readBlockFromDataNode(address, blockID, capability string) ([]byte, error) {

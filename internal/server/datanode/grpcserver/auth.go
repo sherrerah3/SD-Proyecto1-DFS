@@ -24,7 +24,7 @@ func (s *Server) capabilityFromContext(ctx context.Context, op string) (auth.Cap
 
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return auth.Capability{}, status.Error(codes.Unauthenticated, "falta la metadata de autorización")
+		return auth.Capability{}, status.Error(codes.Unauthenticated, "authorization metadata is missing")
 	}
 
 	token := ""
@@ -32,12 +32,12 @@ func (s *Server) capabilityFromContext(ctx context.Context, op string) (auth.Cap
 		token = strings.TrimPrefix(vals[0], "Bearer ")
 	}
 	if token == "" {
-		return auth.Capability{}, status.Error(codes.Unauthenticated, "falta el capability token")
+		return auth.Capability{}, status.Error(codes.Unauthenticated, "capability token is missing")
 	}
 
 	cap, err := s.validator.Validate(token, op)
 	if err != nil {
-		return auth.Capability{}, status.Error(codes.PermissionDenied, "capability token inválido")
+		return auth.Capability{}, status.Error(codes.PermissionDenied, "invalid capability token")
 	}
 	return cap, nil
 }
@@ -48,7 +48,7 @@ func (s *Server) authorizeBlock(cap auth.Capability, blockID string) error {
 		return nil
 	}
 	if !cap.Allows(blockID) {
-		return status.Error(codes.PermissionDenied, "el token no autoriza este bloque")
+		return status.Error(codes.PermissionDenied, "the token does not authorize this block")
 	}
 	return nil
 }
@@ -60,7 +60,7 @@ func (s *Server) requireClusterSecret(ctx context.Context) error {
 	}
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return status.Error(codes.Unauthenticated, "falta la metadata del clúster")
+		return status.Error(codes.Unauthenticated, "cluster metadata is missing")
 	}
 	got := ""
 	if vals := md.Get(mdClusterSecret); len(vals) > 0 {
@@ -69,7 +69,7 @@ func (s *Server) requireClusterSecret(ctx context.Context) error {
 	if subtleEqual(got, s.clusterSecret) {
 		return nil
 	}
-	return status.Error(codes.PermissionDenied, "secreto de clúster inválido")
+	return status.Error(codes.PermissionDenied, "invalid cluster secret")
 }
 
 func subtleEqual(a, b string) bool {

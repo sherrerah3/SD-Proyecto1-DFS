@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"dfsha/internal/server/datanode/blockstore"
 )
 
 // ErrNotRegistered indica que el Metanode no conoce este DataNode.
-var ErrNotRegistered = errors.New("datanode no registrado en el metanode")
+var ErrNotRegistered = errors.New("datanode is not registered with the MetaNode")
 
 type HTTPReporter struct {
 	baseURL       string
@@ -37,10 +39,11 @@ func (r *HTTPReporter) SetClusterSecret(secret string) {
 var _ Reporter = (*HTTPReporter)(nil)
 
 type reportRequest struct {
-	DataNodeID string `json:"datanode_id"`
-	Address    string `json:"address"`
-	FreeBytes  int64  `json:"free_bytes"`
-	BlockCount int    `json:"block_count"`
+	DataNodeID string                   `json:"datanode_id"`
+	Address    string                   `json:"address"`
+	FreeBytes  int64                    `json:"free_bytes"`
+	BlockCount int                      `json:"block_count"`
+	Blocks     []blockstore.BlockReport `json:"blocks"`
 }
 
 type heartbeatReply struct {
@@ -83,12 +86,12 @@ func (r *HTTPReporter) ReportBlock(ctx context.Context, blockID, dataNodeID, sha
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("conectar con el metanode: %w", err)
+		return fmt.Errorf("connect to MetaNode: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("metanode respondió HTTP %d al reportar bloque", resp.StatusCode)
+		return fmt.Errorf("MetaNode returned HTTP %d while reporting block", resp.StatusCode)
 	}
 	return nil
 }
@@ -103,11 +106,12 @@ func (r *HTTPReporter) post(
 		Address:    report.Address,
 		FreeBytes:  report.FreeBytes,
 		BlockCount: report.BlockCount,
+		Blocks:     report.Blocks,
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return heartbeatReply{}, fmt.Errorf("serializar heartbeat: %w", err)
+		return heartbeatReply{}, fmt.Errorf("marshal heartbeat: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -117,14 +121,14 @@ func (r *HTTPReporter) post(
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return heartbeatReply{}, fmt.Errorf("crear petición al metanode: %w", err)
+		return heartbeatReply{}, fmt.Errorf("create request to MetaNode: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	r.auth(req)
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return heartbeatReply{}, fmt.Errorf("conectar con el metanode: %w", err)
+		return heartbeatReply{}, fmt.Errorf("connect to MetaNode: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -132,7 +136,7 @@ func (r *HTTPReporter) post(
 		return heartbeatReply{}, ErrNotRegistered
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return heartbeatReply{}, fmt.Errorf("metanode respondió HTTP %d", resp.StatusCode)
+		return heartbeatReply{}, fmt.Errorf("MetaNode returned HTTP %d", resp.StatusCode)
 	}
 
 	var reply heartbeatReply

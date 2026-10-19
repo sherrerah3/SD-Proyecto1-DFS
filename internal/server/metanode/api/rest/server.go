@@ -1,8 +1,10 @@
 package rest
 
 import (
+	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"dfsha/internal/server/metanode/store"
 )
@@ -72,7 +74,7 @@ func (srv *Server) Routes() http.Handler {
 	// 200 solo en el líder (lo usa el proxy)
 	mux.HandleFunc("GET /health", srv.handleHealth)
 
-	return mux
+	return logRequests(mux)
 }
 
 func (srv *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -81,4 +83,25 @@ func (srv *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "leader"})
+}
+
+// logRequests records every HTTP request handled by the MetaNode without logging credentials.
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		wrapped := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(wrapped, r)
+		log.Printf("MetaNode HTTP request: remote=%s method=%s path=%s status=%d duration=%s",
+			r.RemoteAddr, r.Method, r.URL.RequestURI(), wrapped.status, time.Since(started).Round(time.Millisecond))
+	})
+}
+
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *responseRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }

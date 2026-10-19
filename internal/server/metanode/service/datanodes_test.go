@@ -7,114 +7,114 @@ import (
 	"dfsha/internal/server/metanode/store"
 )
 
-func TestCheckDataNodesMarcaMuerto(t *testing.T) {
+func TestCheckDataNodesMarksDead(t *testing.T) {
 	s := store.NewMemoryStore()
 	if err := RegisterDataNode(s, "dn-1", "127.0.0.1:9000"); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
-	// A los 20s sin latir supera el umbral de 15s: queda muerto.
+	// After 20s without a heartbeat, the 15s threshold is exceeded: the node is marked dead.
 	dead, err := CheckDataNodes(s, time.Now().Add(20*time.Second), DeadThreshold)
 	if err != nil {
-		t.Fatalf("CheckDataNodes falló: %v", err)
+		t.Fatalf("CheckDataNodes failed: %v", err)
 	}
 	if len(dead) != 1 {
-		t.Fatalf("se esperaba 1 nodo muerto, hay %d", len(dead))
+		t.Fatalf("expected 1 dead node, got %d", len(dead))
 	}
 
 	alive, _ := s.ListAliveDataNodes()
 	if len(alive) != 0 {
-		t.Fatalf("un nodo muerto no debe aparecer entre los vivos, hay %d", len(alive))
+		t.Fatalf("a dead node must not appear among alive nodes, got %d", len(alive))
 	}
 }
 
-func TestCheckDataNodesSigueVivo(t *testing.T) {
+func TestCheckDataNodesRemainsAlive(t *testing.T) {
 	s := store.NewMemoryStore()
 	if err := RegisterDataNode(s, "dn-1", "127.0.0.1:9000"); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
-	// A los 10s aún no supera el umbral de 15s: sigue vivo.
+	// After 10s, the 15s threshold has not been exceeded: the node remains alive.
 	dead, err := CheckDataNodes(s, time.Now().Add(10*time.Second), DeadThreshold)
 	if err != nil {
-		t.Fatalf("CheckDataNodes falló: %v", err)
+		t.Fatalf("CheckDataNodes failed: %v", err)
 	}
 	if len(dead) != 0 {
-		t.Fatalf("ningún nodo debía morir, murieron %d", len(dead))
+		t.Fatalf("no nodes should have died, got %d dead nodes", len(dead))
 	}
 
 	alive, _ := s.ListAliveDataNodes()
 	if len(alive) != 1 {
-		t.Fatalf("el nodo debía seguir vivo, hay %d", len(alive))
+		t.Fatalf("the node should remain alive, got %d", len(alive))
 	}
 }
 
-func TestHeartbeatRevivePorNodoMuerto(t *testing.T) {
+func TestHeartbeatRevivesDeadNode(t *testing.T) {
 	s := store.NewMemoryStore()
 	if err := RegisterDataNode(s, "dn-1", "127.0.0.1:9000"); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
-	// Se marca muerto por inactividad.
+	// Mark the node as dead due to inactivity.
 	if _, err := CheckDataNodes(s, time.Now().Add(20*time.Second), DeadThreshold); err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 	if alive, _ := s.ListAliveDataNodes(); len(alive) != 0 {
-		t.Fatalf("el nodo debía estar muerto antes del heartbeat")
+		t.Fatalf("the node should be dead before the heartbeat")
 	}
 
-	// Un heartbeat lo revive.
+	// A heartbeat revives the node.
 	if err := ReceiveHeartbeat(s, "dn-1", 100); err != nil {
-		t.Fatalf("heartbeat falló: %v", err)
+		t.Fatalf("heartbeat failed: %v", err)
 	}
 
 	alive, _ := s.ListAliveDataNodes()
 	if len(alive) != 1 {
-		t.Fatalf("el nodo debía revivir tras el heartbeat, hay %d vivos", len(alive))
+		t.Fatalf("the node should revive after the heartbeat, got %d alive nodes", len(alive))
 	}
 }
 
-func TestHeartbeatNodoDesconocido(t *testing.T) {
+func TestHeartbeatUnknownNode(t *testing.T) {
 	s := store.NewMemoryStore()
 
-	if err := ReceiveHeartbeat(s, "nunca-registrado", 100); err != ErrUnknownDataNode {
-		t.Fatalf("error = %v, se esperaba ErrUnknownDataNode", err)
+	if err := ReceiveHeartbeat(s, "never-registered", 100); err != ErrUnknownDataNode {
+		t.Fatalf("error = %v, expected ErrUnknownDataNode", err)
 	}
 }
 
-func TestRegisterDataNodeDireccionInvalida(t *testing.T) {
+func TestRegisterDataNodeInvalidAddress(t *testing.T) {
 	s := store.NewMemoryStore()
 
-	direcciones := map[string]string{
-		"vacía":      "",
-		"sin puerto": "localhost",
-		"sin host":   ":9090",
+	addresses := map[string]string{
+		"empty":        "",
+		"missing port": "localhost",
+		"missing host": ":9090",
 	}
 
-	for nombre, addr := range direcciones {
-		t.Run(nombre, func(t *testing.T) {
+	for name, addr := range addresses {
+		t.Run(name, func(t *testing.T) {
 			if err := RegisterDataNode(s, "dn-1", addr); err != ErrInvalidDataNode {
-				t.Fatalf("error = %v, se esperaba ErrInvalidDataNode", err)
+				t.Fatalf("error = %v, expected ErrInvalidDataNode", err)
 			}
 		})
 	}
 }
 
-func TestRegisterDataNodeSobrescribe(t *testing.T) {
+func TestRegisterDataNodeOverwrites(t *testing.T) {
 	s := store.NewMemoryStore()
 
 	if err := RegisterDataNode(s, "dn-1", "127.0.0.1:9000"); err != nil {
-		t.Fatalf("primer registro falló: %v", err)
+		t.Fatalf("first registration failed: %v", err)
 	}
 	if err := RegisterDataNode(s, "dn-1", "127.0.0.1:9999"); err != nil {
-		t.Fatalf("segundo registro falló: %v", err)
+		t.Fatalf("second registration failed: %v", err)
 	}
 
 	nodes, _ := s.ListAliveDataNodes()
 	if len(nodes) != 1 {
-		t.Fatalf("debía quedar una sola ficha, hay %d", len(nodes))
+		t.Fatalf("there should be only one record, got %d", len(nodes))
 	}
 	if nodes[0].Address != "127.0.0.1:9999" {
-		t.Fatalf("la dirección no se actualizó: %q", nodes[0].Address)
+		t.Fatalf("the address was not updated: %q", nodes[0].Address)
 	}
 }

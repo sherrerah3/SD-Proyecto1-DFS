@@ -42,13 +42,13 @@ func newStoreWithBlocks(t *testing.T, n int) blockstore.BlockStore {
 
 	store, err := blockstore.NewDiskStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("preparación falló: %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
 	for i := 0; i < n; i++ {
 		id := "blk-" + string(rune('a'+i))
 		if _, err := store.Write(id, strings.NewReader(id)); err != nil {
-			t.Fatalf("preparación falló: %v", err)
+			t.Fatalf("setup failed: %v", err)
 		}
 	}
 
@@ -77,11 +77,11 @@ func TestAgentRegistersAndBeats(t *testing.T) {
 
 	registered, beats := reporter.counts()
 	if registered != 1 {
-		t.Fatalf("se esperaba 1 registro, se obtuvieron %d", registered)
+		t.Fatalf("expected one registration, got %d", registered)
 	}
 
 	if beats == 0 {
-		t.Fatalf("se esperaba al menos un latido")
+		t.Fatalf("expected at least one heartbeat")
 	}
 }
 
@@ -94,15 +94,17 @@ func TestAgentReportsStoreState(t *testing.T) {
 	report := agent.snapshot()
 
 	if report.DataNodeID != "dn-1" {
-		t.Fatalf("DataNodeID = %q, se esperaba dn-1", report.DataNodeID)
+		t.Fatalf("DataNodeID = %q, expected dn-1", report.DataNodeID)
 	}
 
-	// BlockCount no recorre el disco, siempre es 0
-	if report.BlockCount != 0 {
-		t.Fatalf("BlockCount = %d, se esperaba 0", report.BlockCount)
+	if report.BlockCount != 2 {
+		t.Fatalf("BlockCount = %d, expected 2", report.BlockCount)
+	}
+	if len(report.Blocks) != 2 {
+		t.Fatalf("len(Blocks) = %d, expected 2", len(report.Blocks))
 	}
 
 	if report.FreeBytes != 4096 {
-		t.Fatalf("FreeBytes = %d, se esperaba 4096", report.FreeBytes)
+		t.Fatalf("FreeBytes = %d, expected 4096", report.FreeBytes)
 	}
 }

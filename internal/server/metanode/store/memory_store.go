@@ -33,7 +33,7 @@ func NewMemoryStore() *MemoryStore {
 	}
 }
 
-// --- Archivos ---
+// --- Files ---
 
 func fileKey(owner, filePath string) string {
 	return owner + "\x00" + filePath
@@ -61,7 +61,7 @@ func (s *MemoryStore) GetFile(
 	f, ok := s.files[fileKey(owner, filePath)]
 	if !ok {
 		return FileMetadata{}, fmt.Errorf(
-			"archivo no encontrado: %s",
+			"file not found: %s",
 			filePath,
 		)
 	}
@@ -75,21 +75,21 @@ func (s *MemoryStore) UpdateFile(f FileMetadata) error {
 
 	key := fileKey(f.Owner, f.Path)
 	if _, ok := s.files[key]; !ok {
-		return fmt.Errorf("archivo no encontrado: %s", f.Path)
+		return fmt.Errorf("file not found: %s", f.Path)
 	}
 
 	s.files[key] = f
 	return nil
 }
 
-// ReplaceFileWithStaged publica la metadata temporal en la ruta definitiva
-// bajo el mismo mutex. El archivo anterior se devuelve para limpiar sus bloques.
+// ReplaceFileWithStaged publishes temporary metadata to the final path
+// under the same mutex. The previous file is returned to clean up its blocks.
 func (s *MemoryStore) ReplaceFileWithStaged(
 	owner, targetPath, stagingPath string,
 ) (FileMetadata, error) {
 	if targetPath == stagingPath {
 		return FileMetadata{}, errors.New(
-			"la ruta temporal y la ruta destino no pueden ser iguales",
+			"temporary path and destination path cannot be identical",
 		)
 	}
 
@@ -104,21 +104,21 @@ func (s *MemoryStore) ReplaceFileWithStaged(
 
 	if !targetExists {
 		return FileMetadata{}, fmt.Errorf(
-			"archivo destino no encontrado: %s",
+			"destination file not found: %s",
 			targetPath,
 		)
 	}
 
 	if !stagingExists {
 		return FileMetadata{}, fmt.Errorf(
-			"archivo temporal no encontrado: %s",
+			"temporary file not found: %s",
 			stagingPath,
 		)
 	}
 
 	if stagedFile.SHA256 == "" {
 		return FileMetadata{}, errors.New(
-			"la versión temporal todavía no está completa",
+			"the temporary version is not complete yet",
 		)
 	}
 
@@ -140,14 +140,14 @@ func (s *MemoryStore) DeleteFile(
 
 	key := fileKey(owner, filePath)
 	if _, ok := s.files[key]; !ok {
-		return fmt.Errorf("archivo no encontrado: %s", filePath)
+		return fmt.Errorf("file not found: %s", filePath)
 	}
 
 	delete(s.files, key)
 	return nil
 }
 
-// ListFiles devuelve archivos del usuario bajo dirPath.
+// ListFiles returns the user's files under dirPath.
 func (s *MemoryStore) ListFiles(
 	owner, dirPath string,
 ) ([]FileMetadata, error) {
@@ -170,7 +170,7 @@ func (s *MemoryStore) ListFiles(
 	return result, nil
 }
 
-// --- Bloques ---
+// --- Blocks ---
 
 func (s *MemoryStore) SaveBlockLocation(b BlockMetadata) error {
 	s.mu.Lock()
@@ -189,12 +189,32 @@ func (s *MemoryStore) GetBlockLocation(
 	b, ok := s.blocks[blockID]
 	if !ok {
 		return BlockMetadata{}, fmt.Errorf(
-			"bloque no encontrado: %s",
+			"block not found: %s",
 			blockID,
 		)
 	}
 
 	return b, nil
+}
+
+// ListBlockLocations returns a snapshot of all known block locations.
+func (s *MemoryStore) ListBlockLocations() ([]BlockMetadata, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]BlockMetadata, 0, len(s.blocks))
+	for _, block := range s.blocks {
+		block.DataNodes = append([]string(nil), block.DataNodes...)
+		if block.Confirmations != nil {
+			copyConfirmations := make(map[string]string, len(block.Confirmations))
+			for id, hash := range block.Confirmations {
+				copyConfirmations[id] = hash
+			}
+			block.Confirmations = copyConfirmations
+		}
+		out = append(out, block)
+	}
+	return out, nil
 }
 
 func (s *MemoryStore) ReportBlock(
@@ -205,7 +225,7 @@ func (s *MemoryStore) ReportBlock(
 
 	b, ok := s.blocks[blockID]
 	if !ok {
-		return fmt.Errorf("bloque no encontrado: %s", blockID)
+		return fmt.Errorf("block not found: %s", blockID)
 	}
 
 	if b.Confirmations == nil {
@@ -232,12 +252,70 @@ func (s *MemoryStore) EnqueueBlockDeletion(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.pendingDel[dataNodeID] = append(
-		s.pendingDel[dataNodeID],
-		blockID,
-	)
-
+	for _, queued := range s.pendingDel[dataNodeID] {
+		if queued == blockID {
+			return nil
+		}
+	}
+	s.pendingDel[dataNodeID] = append(s.pendingDel[dataNodeID], blockID)
 	return nil
+}
+
+// ListBlockDeletions returns pending deletions without consuming them. The
+// DataNode acknowledges a deletion only after a later inventory proves that
+// the block is no longer present on disk.
+func (s *MemoryStore) ListBlockDeletions(dataNodeID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := s.pendingDel[dataNodeID]
+	return append([]string(nil), ids...), nil
+}
+
+// AckBlockDeletions removes only the specified items from the durable queue.
+func (s *MemoryStore) AckBlockDeletions(dataNodeID string, blockIDs []string) error {
+	if len(blockIDs) == 0 {
+		return nil
+	}
+
+	acked := make(map[string]struct{}, len(blockIDs))
+	for _, id := range blockIDs {
+		acked[id] = struct{}{}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current := s.pendingDel[dataNodeID]
+	kept := current[:0]
+	for _, id := range current {
+		if _, ok := acked[id]; !ok {
+			kept = append(kept, id)
+		}
+	}
+	if len(kept) == 0 {
+		delete(s.pendingDel, dataNodeID)
+	} else {
+		s.pendingDel[dataNodeID] = append([]string(nil), kept...)
+	}
+	return nil
+}
+
+// IsBlockReferenced reports whether a current file entry still uses blockID.
+// It intentionally includes staged uploads, because their blocks are valid
+// until the upload is committed or aborted.
+func (s *MemoryStore) IsBlockReferenced(blockID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, file := range s.files {
+		for _, id := range file.BlockIDs {
+			if id == blockID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *MemoryStore) DequeueBlockDeletions(
@@ -330,14 +408,14 @@ func (s *MemoryStore) SetDataNodeAlive(
 	return nil
 }
 
-// --- Usuarios ---
+// --- Users ---
 
 func (s *MemoryStore) CreateUser(u UserInfo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, exists := s.users[u.Username]; exists {
-		return fmt.Errorf("el usuario %s ya existe", u.Username)
+		return fmt.Errorf("user %s already exists", u.Username)
 	}
 
 	s.users[u.Username] = u
@@ -350,7 +428,7 @@ func (s *MemoryStore) GetUser(username string) (UserInfo, error) {
 
 	u, ok := s.users[username]
 	if !ok {
-		return UserInfo{}, fmt.Errorf("usuario no encontrado: %s", username)
+		return UserInfo{}, fmt.Errorf("user not found: %s", username)
 	}
 
 	return u, nil
@@ -365,7 +443,7 @@ func (s *MemoryStore) UpdateQuotaUsed(
 
 	u, ok := s.users[username]
 	if !ok {
-		return fmt.Errorf("usuario no encontrado: %s", username)
+		return fmt.Errorf("user not found: %s", username)
 	}
 
 	u.QuotaUsedBytes += deltaBytes
@@ -383,7 +461,7 @@ func (s *MemoryStore) ReserveQuota(
 
 	u, ok := s.users[username]
 	if !ok {
-		return fmt.Errorf("usuario no encontrado: %s", username)
+		return fmt.Errorf("user not found: %s", username)
 	}
 
 	if u.QuotaUsedBytes+deltaBytes > maxBytes {
@@ -403,13 +481,15 @@ func (s *MemoryStore) CountUsers() int {
 	return len(s.users)
 }
 
-// --- Snapshot para persistencia ---
+// --- Snapshot for persistence ---
 
 type snapshot struct {
 	Files       map[string]FileMetadata  `json:"files"`
 	Blocks      map[string]BlockMetadata `json:"blocks"`
+	DataNodes   map[string]DataNodeInfo  `json:"datanodes"`
 	Users       map[string]UserInfo      `json:"users"`
 	Directories map[string]bool          `json:"directories"`
+	PendingDel  map[string][]string      `json:"pending_deletions"`
 }
 
 func (s *MemoryStore) Snapshot() ([]byte, error) {
@@ -419,8 +499,10 @@ func (s *MemoryStore) Snapshot() ([]byte, error) {
 	return json.Marshal(snapshot{
 		Files:       s.files,
 		Blocks:      s.blocks,
+		DataNodes:   s.datanodes,
 		Users:       s.users,
 		Directories: s.directories,
+		PendingDel:  s.pendingDel,
 	})
 }
 
@@ -436,8 +518,10 @@ func (s *MemoryStore) Restore(data []byte) error {
 
 	s.files = orEmpty(snap.Files)
 	s.blocks = orEmpty(snap.Blocks)
+	s.datanodes = orEmpty(snap.DataNodes)
 	s.users = orEmpty(snap.Users)
 	s.directories = orEmpty(snap.Directories)
+	s.pendingDel = orEmpty(snap.PendingDel)
 
 	return nil
 }
@@ -451,11 +535,11 @@ func orEmpty[K comparable, V any](m map[K]V) map[K]V {
 }
 
 var (
-	ErrDirectoryNotFound = errors.New("directorio no encontrado")
-	ErrDirectoryExists   = errors.New("el directorio ya existe")
-	ErrDirectoryNotEmpty = errors.New("el directorio no está vacío")
-	ErrQuotaExceeded     = errors.New("cuota de almacenamiento excedida")
-	ErrFileAlreadyExists = errors.New("ya existe un archivo en esa ruta")
+	ErrDirectoryNotFound = errors.New("directory not found")
+	ErrDirectoryExists   = errors.New("directory already exists")
+	ErrDirectoryNotEmpty = errors.New("directory is not empty")
+	ErrQuotaExceeded     = errors.New("storage quota exceeded")
+	ErrFileAlreadyExists = errors.New("a file already exists at this path")
 )
 
 func directoryKey(username, dirPath string) string {

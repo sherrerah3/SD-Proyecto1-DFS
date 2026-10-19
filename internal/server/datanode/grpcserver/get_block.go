@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"io"
+	"log"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,7 +14,7 @@ import (
 // GetBlock devuelve un bloque como stream: primero el header, luego los chunks.
 func (s *Server) GetBlock(req *datanodev1.GetBlockRequest, stream datanodev1.BlockService_GetBlockServer) error {
 	if req.GetBlockId() == "" {
-		return status.Error(codes.InvalidArgument, "block_id vacío")
+		return status.Error(codes.InvalidArgument, "empty block_id")
 	}
 
 	// Exige capability op=get que incluya el bloque.
@@ -25,9 +26,10 @@ func (s *Server) GetBlock(req *datanodev1.GetBlockRequest, stream datanodev1.Blo
 		return err
 	}
 
+	log.Printf("datanode %s: block download requested block_id=%s remote=%s", s.selfID, req.GetBlockId(), remoteAddress(stream.Context()))
 	rc, info, err := s.store.Read(req.GetBlockId())
 	if err != nil {
-		return status.Errorf(codes.NotFound, "bloque no encontrado: %v", err)
+		return status.Errorf(codes.NotFound, "block not found: %v", err)
 	}
 
 	defer rc.Close()
@@ -61,11 +63,12 @@ func (s *Server) GetBlock(req *datanodev1.GetBlockRequest, stream datanodev1.Blo
 		}
 
 		if readErr == io.EOF {
+			log.Printf("datanode %s: block download completed block_id=%s size_bytes=%d remote=%s", s.selfID, info.BlockID, info.SizeBytes, remoteAddress(stream.Context()))
 			return nil
 		}
 
 		if readErr != nil {
-			return status.Errorf(codes.Internal, "falló la lectura del bloque: %v", readErr)
+			return status.Errorf(codes.Internal, "failed to read block: %v", readErr)
 		}
 	}
 }

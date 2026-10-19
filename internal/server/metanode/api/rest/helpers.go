@@ -26,7 +26,7 @@ func writeJSON(
 
 	if body != nil {
 		if err := json.NewEncoder(w).Encode(body); err != nil {
-			log.Printf("error escribiendo respuesta: %v", err)
+			log.Printf("error writing response: %v", err)
 		}
 	}
 }
@@ -39,21 +39,19 @@ func writeError(
 	writeJSON(w, status, errorResponse{Error: msg})
 }
 
-func decodeJSON(
-	w http.ResponseWriter,
-	r *http.Request,
-	dst any,
-) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeJSONLimit(w, r, dst, 1<<20)
+}
+
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-
 	if err := dec.Decode(dst); err != nil {
-		writeError(w, http.StatusBadRequest, "JSON invalido")
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return false
 	}
-
 	return true
 }
 
@@ -99,8 +97,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	status := statusFor(err)
 
 	if status == http.StatusInternalServerError {
-		log.Printf("error interno: %v", err)
-		writeError(w, status, "error interno del servidor")
+		log.Printf("internal error: %v", err)
+		writeError(w, status, "internal server error")
 		return
 	}
 
@@ -120,7 +118,7 @@ func cleanFilePath(p string) (string, bool) {
 		return "", false
 	}
 
-	// Las rutas temporales son internas.
+	// Staging paths are internal.
 	for _, segment := range strings.Split(strings.Trim(clean, "/"), "/") {
 		if strings.HasPrefix(segment, ".dfsha-stage-") {
 			return "", false

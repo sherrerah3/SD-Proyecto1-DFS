@@ -31,7 +31,7 @@ func (r *Replicator) SetClusterSecret(secret string) {
 	r.clusterSecret = secret
 }
 
-// Block describe el bloque a replicar y de dónde leer su contenido.
+// Block describe el block to replicate y de dónde leer su contenido.
 type Block struct {
 	BlockID string
 	SHA256  string

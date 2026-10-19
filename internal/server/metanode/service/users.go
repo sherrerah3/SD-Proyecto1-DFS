@@ -12,7 +12,7 @@ import (
 	"dfsha/internal/server/metanode/store"
 )
 
-// Límites de validación de credenciales.
+// Credential validation limits.
 const (
 	minUsernameLen = 1
 	maxUsernameLen = 16
@@ -20,48 +20,48 @@ const (
 	maxPasswordLen = 72
 )
 
-// SessionTTL es la duración del JWT de sesión (el capability token usa su propio TTL).
+// SessionTTL is the session JWT lifetime (the capability token has its own TTL).
 const SessionTTL = 5 * time.Minute
 
-// Variables de entorno con las claves de firma (sesión y capacidades son distintas)
+// Environment variables for signing keys (session and capability keys are different).
 const (
 	jwtSecretEnvVar        = "METANODE_JWT_SECRET"
 	capabilitySecretEnvVar = "DFSHA_CAPABILITY_SECRET"
 )
 
-// Tipos de token: distinguen un JWT de sesión de un capability token.
+// Token types: distinguish a session JWT from a capability token.
 const (
 	tokenTypeSession    = "session"
 	tokenTypeCapability = "capability"
 )
 
-// Operaciones que puede autorizar un capability token.
+// Operations that a capability token can authorize.
 const (
 	OpPut = "put"
 	OpGet = "get"
 )
 
-// MaxUsers es el tope de usuarios registrados
+// MaxUsers is the maximum number of registered users.
 const MaxUsers = 50
 
-// ErrTooManyUsers se devuelve al alcanzar el tope
-var ErrTooManyUsers = errors.New("se alcanzó el máximo de usuarios registrados")
+// ErrTooManyUsers is returned when the user limit is reached.
+var ErrTooManyUsers = errors.New("maximum number of registered users reached")
 
-// hashDummy iguala el tiempo de login cuando el usuario no existe
+// hashDummy equalizes login processing time when the user does not exist.
 var hashDummy = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy")
 
-// Errores tipados para que las capas superiores los mapeen a códigos HTTP.
+// Typed errors so upper layers can map them to HTTP status codes.
 var (
-	ErrInvalidUsername         = errors.New("username inválido: 1 a 16 caracteres alfanuméricos")
-	ErrInvalidPassword         = errors.New("password inválida: 6 a 72 caracteres alfanuméricos")
-	ErrUserAlreadyExists       = errors.New("el usuario ya existe")
-	ErrInvalidCredentials      = errors.New("usuario o contraseña incorrectos")
-	ErrMissingJWTSecret        = errors.New("falta la variable de entorno " + jwtSecretEnvVar)
-	ErrMissingCapabilitySecret = errors.New("falta la variable de entorno " + capabilitySecretEnvVar)
-	ErrInvalidToken            = errors.New("token inválido o expirado")
+	ErrInvalidUsername         = errors.New("invalid username: 1 to 16 alphanumeric characters")
+	ErrInvalidPassword         = errors.New("invalid password: 6 to 72 alphanumeric characters")
+	ErrUserAlreadyExists       = errors.New("user already exists")
+	ErrInvalidCredentials      = errors.New("incorrect username or password")
+	ErrMissingJWTSecret        = errors.New("missing environment variable " + jwtSecretEnvVar)
+	ErrMissingCapabilitySecret = errors.New("missing environment variable " + capabilitySecretEnvVar)
+	ErrInvalidToken            = errors.New("invalid or expired token")
 )
 
-// Valida credenciales, hashea con bcrypt y crea el usuario con cuota en 0.
+// Validates credentials, hashes the password with bcrypt, and creates the user with a quota of 0.
 func Register(s store.Store, username, plaintextPassword string) error {
 	if !validUsername(username) {
 		return ErrInvalidUsername
@@ -71,17 +71,17 @@ func Register(s store.Store, username, plaintextPassword string) error {
 		return ErrInvalidPassword
 	}
 
-	// Tope de usuarios
+	// User limit.
 	if s.CountUsers() >= MaxUsers {
 		return ErrTooManyUsers
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(plaintextPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("no se pudo hashear la contraseña: %w", err)
+		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// CreateUser verifica el duplicado bajo su propio lock
+	// CreateUser checks for duplicates under its own lock.
 	if err := s.CreateUser(store.UserInfo{
 		Username:       username,
 		PasswordHash:   string(hash),
@@ -96,11 +96,11 @@ func Register(s store.Store, username, plaintextPassword string) error {
 	return nil
 }
 
-// Verifica las credenciales y devuelve un JWT de sesión si son correctas.
+// Verifies credentials and returns a session JWT if they are correct.
 func Login(s store.Store, username, plaintextPassword string) (string, error) {
 	user, err := s.GetUser(username)
 	if err != nil {
-		// Usuario inexistente: mismo costo que una contraseña mala.
+		// Nonexistent user: use the same cost as an incorrect password.
 		_ = bcrypt.CompareHashAndPassword(hashDummy, []byte(plaintextPassword))
 		return "", ErrInvalidCredentials
 	}
@@ -112,14 +112,14 @@ func Login(s store.Store, username, plaintextPassword string) (string, error) {
 	return generateSessionToken(username, SessionTTL)
 }
 
-// Verifica la firma y expiración de un JWT de sesión y devuelve el username.
+// Verifies the signature and expiration of a session JWT and returns the username.
 func ValidateJWT(tokenString string) (string, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
 		return "", err
 	}
 
-	// Un capability token no debe servir como token de sesión.
+	// A capability token must not be accepted as a session token.
 	if err := requireTokenType(claims, tokenTypeSession); err != nil {
 		return "", err
 	}
@@ -132,14 +132,14 @@ func ValidateJWT(tokenString string) (string, error) {
 	return sub, nil
 }
 
-// Capability es lo que autoriza un capability token validado
+// Capability represents what a validated capability token authorizes.
 type Capability struct {
 	Username string
-	Op       string // OpPut u OpGet
+	Op       string // OpPut or OpGet
 	BlockIDs []string
 }
 
-// Emite un JWT de vida corta que autoriza una operación sobre bloques ante los DataNodes.
+// Issues a short-lived JWT authorizing an operation on blocks at the DataNodes.
 func GenerateCapabilityToken(username, op string, blockIDs []string, ttl time.Duration) (string, error) {
 	secret, err := capabilitySecret()
 	if err != nil {
@@ -161,7 +161,7 @@ func GenerateCapabilityToken(username, op string, blockIDs []string, ttl time.Du
 	return token.SignedString(secret)
 }
 
-// Verifica un capability token y devuelve lo que autoriza.
+// Verifies a capability token and returns the permissions it grants.
 func ValidateCapabilityToken(tokenString string) (Capability, error) {
 	claims, err := parseTokenWith(tokenString, capabilitySecret)
 	if err != nil {
@@ -199,7 +199,7 @@ func ValidateCapabilityToken(tokenString string) (Capability, error) {
 	return Capability{Username: sub, Op: op, BlockIDs: blockIDs}, nil
 }
 
-// --- helpers internos ---
+// --- Internal helpers ---
 
 func validUsername(username string) bool {
 	if len(username) < minUsernameLen || len(username) > maxUsernameLen {
@@ -246,7 +246,7 @@ func generateSessionToken(username string, ttl time.Duration) (string, error) {
 	return token.SignedString(secret)
 }
 
-// requireTokenType rechaza el token si su claim "typ" no es el esperado.
+// requireTokenType rejects the token if its "typ" claim does not match the expected value.
 func requireTokenType(claims jwt.MapClaims, want string) error {
 	if typ, _ := claims["typ"].(string); typ != want {
 		return ErrInvalidToken
@@ -258,7 +258,7 @@ func parseToken(tokenString string) (jwt.MapClaims, error) {
 	return parseTokenWith(tokenString, jwtSecret)
 }
 
-// parseTokenWith valida la firma con la clave de secretFn
+// parseTokenWith validates the signature using the key returned by secretFn.
 func parseTokenWith(tokenString string, secretFn func() ([]byte, error)) (jwt.MapClaims, error) {
 	secret, err := secretFn()
 	if err != nil {
@@ -295,7 +295,7 @@ func capabilitySecret() ([]byte, error) {
 	return []byte(secret), nil
 }
 
-// RequireSecrets verifica al arrancar que existan las claves de firma
+// RequireSecrets checks at startup that the signing keys are configured.
 func RequireSecrets() error {
 	if os.Getenv(jwtSecretEnvVar) == "" {
 		return ErrMissingJWTSecret

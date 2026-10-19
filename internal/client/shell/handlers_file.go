@@ -58,7 +58,7 @@ func handlePut(s *shell, args []string) bool {
 
 	var err error
 	if verbose {
-		fmt.Printf("[put] archivo local=%s remoto=%s\n", localPath, remotePath)
+		fmt.Printf("[put] local file=%s remote=%s\n", localPath, remotePath)
 		err = s.metanode.PutVerbose(localPath, remotePath, s.session.Token, os.Stdout)
 	} else {
 		err = s.metanode.Put(localPath, remotePath, s.session.Token)
@@ -94,7 +94,7 @@ func handleGet(s *shell, args []string) bool {
 
 	var err error
 	if verbose {
-		fmt.Printf("[get] archivo remoto=%s local=%s\n", remotePath, localPath)
+		fmt.Printf("[get] remote file=%s local=%s\n", remotePath, localPath)
 		err = s.metanode.GetVerbose(remotePath, localPath, s.session.Token, os.Stdout)
 	} else {
 		err = s.metanode.Get(remotePath, localPath, s.session.Token)

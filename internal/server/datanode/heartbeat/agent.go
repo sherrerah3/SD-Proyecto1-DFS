@@ -58,6 +58,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Synchronize local disk contents as soon as registration succeeds rather
+	// than waiting a full heartbeat interval after a restart.
+	a.sendHeartbeat(ctx)
+
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
 
@@ -67,21 +71,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
-			toDelete, err := a.reporter.Beat(ctx, a.snapshot())
-			if errors.Is(err, ErrNotRegistered) {
-				// El Metanode no nos conoce (p. ej. tras failover).
-				log.Printf("datanode %s no registrado; re-registrando", a.datanodeID)
-				if rerr := a.reporter.Register(ctx, a.snapshot()); rerr != nil {
-					log.Printf("re-registro del datanode %s falló: %v", a.datanodeID, rerr)
-				}
-				continue
-			}
-			if err != nil {
-				// Un latido fallido no detiene el agente: se reintenta al siguiente.
-				log.Printf("heartbeat del datanode %s falló: %v", a.datanodeID, err)
-				continue
-			}
-			a.applyDeletions(toDelete)
+			a.sendHeartbeat(ctx)
 		}
 	}
 }
@@ -92,9 +82,10 @@ func (a *Agent) registerWithRetry(ctx context.Context) error {
 	const maxBackoff = 15 * time.Second
 	for {
 		if err := a.reporter.Register(ctx, a.snapshot()); err == nil {
+			log.Printf("datanode %s: registered with MetaNode at %s", a.datanodeID, a.address)
 			return nil
 		} else {
-			log.Printf("registro del datanode %s falló: %v (reintentando en %s)", a.datanodeID, err, backoff)
+			log.Printf("registration of datanode %s failed: %v (retrying in %s)", a.datanodeID, err, backoff)
 		}
 		select {
 		case <-ctx.Done():
@@ -116,19 +107,55 @@ func (a *Agent) applyDeletions(blockIDs []string) {
 		return
 	}
 	for _, id := range blockIDs {
-		if _, err := a.deleter.Delete(id); err != nil {
-			log.Printf("datanode %s no pudo borrar el bloque %s: %v", a.datanodeID, id, err)
+		deleted, err := a.deleter.Delete(id)
+		if err != nil {
+			log.Printf("datanode %s failed to delete block %s: %v", a.datanodeID, id, err)
+			continue
 		}
+		log.Printf("datanode %s: processed MetaNode block-release command block_id=%s file_removed=%t storage_available=true", a.datanodeID, id, deleted)
 	}
 }
 
-// snapshot arma el reporte con el estado actual del DataNode.
+// sendHeartbeat reports the current disk inventory and applies deletion commands.
+func (a *Agent) sendHeartbeat(ctx context.Context) {
+	report := a.snapshot()
+	toDelete, err := a.reporter.Beat(ctx, report)
+	if errors.Is(err, ErrNotRegistered) {
+		log.Printf("datanode %s is not registered; registering again", a.datanodeID)
+		if rerr := a.reporter.Register(ctx, a.snapshot()); rerr != nil {
+			log.Printf("re-registration of datanode %s failed: %v", a.datanodeID, rerr)
+		} else {
+			log.Printf("datanode %s: re-registered with MetaNode at %s", a.datanodeID, a.address)
+		}
+		return
+	}
+	if err != nil {
+		log.Printf("heartbeat from datanode %s failed: %v", a.datanodeID, err)
+		return
+	}
+	log.Printf("datanode %s: heartbeat acknowledged by MetaNode reported_blocks=%d pending_deletions=%d", a.datanodeID, report.BlockCount, len(toDelete))
+	a.applyDeletions(toDelete)
+}
+
+// snapshot builds a report using a fresh inventory of the local disk.
 func (a *Agent) snapshot() Report {
+	blockIDs, err := a.store.ListIDs()
+	if err != nil {
+		log.Printf("datanode %s: failed to list local block inventory: %v", a.datanodeID, err)
+		blockIDs = nil // nil means that this report's inventory is unavailable.
+	}
+	blocks := make([]blockstore.BlockReport, 0, len(blockIDs))
+	if blockIDs != nil {
+		for _, id := range blockIDs {
+			blocks = append(blocks, blockstore.BlockReport{BlockID: id})
+		}
+	}
 	return Report{
 		DataNodeID: a.datanodeID,
 		Address:    a.address,
 		FreeBytes:  a.currentFreeBytes(),
-		BlockCount: a.currentBlockCount(),
+		BlockCount: len(blocks),
+		Blocks:     blocks,
 	}
 }
 
@@ -138,9 +165,4 @@ func (a *Agent) currentFreeBytes() int64 {
 	}
 
 	return a.freeBytes()
-}
-
-// currentBlockCount no recorre el disco; el Metanode no usa el dato.
-func (a *Agent) currentBlockCount() int {
-	return 0
 }

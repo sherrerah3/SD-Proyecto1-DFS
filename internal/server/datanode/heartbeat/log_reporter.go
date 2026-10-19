@@ -21,7 +21,7 @@ func NewLogReporter() *LogReporter {
 
 func (r *LogReporter) Register(ctx context.Context, report Report) error {
 	log.Printf(
-		"heartbeat (log): registro datanode=%s addr=%s free=%d bloques=%d",
+		"heartbeat (log): registered datanode=%s addr=%s free=%d blocks=%d",
 		report.DataNodeID, report.Address, report.FreeBytes, report.BlockCount,
 	)
 
@@ -30,7 +30,7 @@ func (r *LogReporter) Register(ctx context.Context, report Report) error {
 
 func (r *LogReporter) Beat(ctx context.Context, report Report) ([]string, error) {
 	log.Printf(
-		"heartbeat (log): latido datanode=%s free=%d bloques=%d",
+		"heartbeat (log): heartbeat datanode=%s free=%d blocks=%d",
 		report.DataNodeID, report.FreeBytes, report.BlockCount,
 	)
 
